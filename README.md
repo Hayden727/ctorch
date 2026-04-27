@@ -283,9 +283,21 @@ ctorch/
 ## Contributing
 
 1. Fork the repository and create a feature branch off `master`.
-2. Add tests covering the change &mdash; new ops require a parity test.
-3. Ensure `clang-format` and `clang-tidy` are clean.
-4. Open a pull request describing the motivation and approach.
+2. Install the pre-commit hooks once per clone:
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+   This wires `clang-format` and the hygiene checks into every `git commit`.
+3. Add tests covering the change &mdash; new ops require a parity test.
+4. Before opening a PR, run the full hook suite and the clang-tidy gate that CI
+   enforces:
+   ```bash
+   pre-commit run --all-files
+   cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+   clang-tidy-16 -p build $(git ls-files '*.cpp')
+   ```
+5. Open a pull request describing the motivation and approach.
 
 ### Adding a New Op
 

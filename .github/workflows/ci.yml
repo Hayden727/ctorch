@@ -11,14 +11,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang tools
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Install clang-tidy toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-16 clang-format-16 clang-tidy-16 cmake ninja-build
-
-      - name: clang-format check
-        run: |
-          clang-format-16 --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+          sudo apt-get install -y clang-16 clang-tidy-16 cmake ninja-build
 
       - name: Configure for clang-tidy
         run: |
