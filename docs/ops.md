@@ -14,7 +14,7 @@ declarations.
 | add | `ctorch::add(a,b)`  | `a + b`  | yes       | f32, f64, i32, i64            | `bool` rejected — promote to int first |
 | sub | `ctorch::sub(a,b)`  | `a - b`  | yes       | f32, f64, i32, i64            | as above                               |
 | mul | `ctorch::mul(a,b)`  | `a * b`  | yes       | f32, f64, i32, i64            | as above                               |
-| div | `ctorch::div(a,b)`  | `a / b`  | yes       | f32, f64, i32, i64            | integer division for int operands      |
+| div | `ctorch::div(a,b)`  | `a / b`  | yes       | f32, f64                      | integer ops are rejected (use float)   |
 
 ## In-place binary
 
@@ -73,6 +73,21 @@ input is ever required.
 | float32 | 1e-5 rel           | 1e-4 rel       |
 | float64 | 1e-12 rel          | 1e-12 rel      |
 | int*    | exact              | n/a            |
+
+## Known limitations
+
+- **`div`/`div_` reject integer operands.** Integer division by zero is UB in
+  C++; rather than risk a crash on user data, ctorch refuses all integer
+  division at the front door. Cast operands to `float32`/`float64` first.
+  This matches PyTorch's `torch.div` default (`rounding_mode=None`) which
+  also promotes integer inputs to float.
+- **Non-contiguous CUDA operands cannot be implicitly promoted.** Same-dtype
+  strided CUDA ops work (the strided indexer kernel handles them), but
+  mixed-dtype ops on non-contiguous CUDA tensors throw `DTypeError`. A
+  bespoke CUDA cast kernel is the planned fix.
+- **`neg`/`abs` on `INT_MIN` wrap to `INT_MIN`.** Documented PyTorch
+  behaviour. Implemented through unsigned arithmetic so it does not trip
+  signed-overflow UB.
 
 ## Cross-device, dtype, and aliasing errors
 

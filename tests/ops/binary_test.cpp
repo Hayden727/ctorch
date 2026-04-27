@@ -148,6 +148,14 @@ TEST(BinaryAdd, RejectsBoolArithmetic) {
     EXPECT_THROW(add(a, b), DTypeError);
 }
 
+TEST(BinaryDiv, RejectsIntegerDivision) {
+    auto a = make_filled<std::int32_t>({2}, dtype::int32, {6, 8});
+    auto b = make_filled<std::int32_t>({2}, dtype::int32, {2, 4});
+    // Integer division by zero is UB in C++; we refuse all integer div
+    // up-front so legitimate user data can never crash the process.
+    EXPECT_THROW(div(a, b), DTypeError);
+}
+
 TEST(BinaryAdd, NonContiguousRhsViaPermute) {
     // a: (2, 3) row-major
     auto a = make_filled<float>({2, 3}, dtype::float32, {1, 2, 3, 4, 5, 6});

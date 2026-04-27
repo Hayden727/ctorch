@@ -95,6 +95,15 @@ void mul_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
     binary_dispatch_numeric(a, b, out, ops::MulF{});
 }
 void div_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
+    // C++ integer division by zero is UB (typically SIGFPE). PyTorch
+    // sidesteps this entirely by promoting integer operands of `div` to a
+    // floating dtype; we follow the same conservative rule and refuse
+    // integer division at the front door rather than risking a crash on
+    // legitimate user data. See docs/ops.md.
+    if (out.dtype() == dtype::int32 || out.dtype() == dtype::int64) {
+        throw DTypeError("ctorch::div: integer division is not supported; "
+                         "cast operands to float32/float64 first");
+    }
     binary_dispatch_numeric(a, b, out, ops::DivF{});
 }
 
@@ -108,6 +117,10 @@ void mul_inplace_cpu(Tensor& a, const Tensor& b) {
     binary_dispatch_numeric(a, b, a, ops::MulF{});
 }
 void div_inplace_cpu(Tensor& a, const Tensor& b) {
+    if (a.dtype() == dtype::int32 || a.dtype() == dtype::int64) {
+        throw DTypeError("ctorch::div_: integer division is not supported; "
+                         "cast operands to float32/float64 first");
+    }
     binary_dispatch_numeric(a, b, a, ops::DivF{});
 }
 
@@ -134,10 +147,18 @@ Tensor maybe_cast(const Tensor& t, dtype target) {
     if (t.device().is_cpu()) {
         return ops::cast_cpu(t, target);
     }
-    // CUDA path: round-trip through the CPU caster. Slow compared to a
-    // dedicated CUDA cast kernel but keeps semantics correct so the front
-    // door behaves identically on both backends. A bespoke
-    // ops::cast_cuda implementation is a follow-up optimisation.
+    // CUDA path: we can only round-trip through the CPU caster if the
+    // tensor is already contiguous-from-offset-0, because Tensor::to(CPU)
+    // currently calls Tensor::contiguous() and CUDA-side strided
+    // materialisation isn't implemented yet. Throwing here is preferable
+    // to the cryptic "non-CPU strided materialization" error from deeper
+    // in the stack. A bespoke ops::cast_cuda kernel is a follow-up.
+    if (!t.is_contiguous() || t.offset() != 0) {
+        throw DTypeError("ctorch: implicit dtype promotion of a "
+                         "non-contiguous CUDA tensor is not yet supported. "
+                         "Cast the operand explicitly on CPU, or arrange for "
+                         "the CUDA tensor to be contiguous before the op.");
+    }
     auto cpu = t.to(Device::cpu());
     auto cast = ops::cast_cpu(cpu, target);
     return cast.to(t.device());

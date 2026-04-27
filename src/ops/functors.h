@@ -45,13 +45,32 @@ struct DivF {
 // ---------- unary, dtype-agnostic ----------
 
 struct NegF {
-    template <class T> CTORCH_OP_FN T operator()(T a) const { return -a; }
+    // Use unsigned arithmetic on signed integers so `neg(INT_MIN)` /
+    // `neg(LLONG_MIN)` produce a defined two's-complement wrap (still the
+    // same bit pattern back) instead of triggering signed-overflow UB —
+    // matches PyTorch's documented behaviour.
+    template <class T> CTORCH_OP_FN T operator()(T a) const {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            using U = std::make_unsigned_t<T>;
+            return static_cast<T>(static_cast<U>(0) - static_cast<U>(a));
+        } else {
+            return -a;
+        }
+    }
 };
 
 struct AbsF {
+    // Same UB-avoidance trick as NegF for the signed minimum: do the
+    // negation through the unsigned representation.
     template <class T> CTORCH_OP_FN T operator()(T a) const {
         if constexpr (std::is_unsigned_v<T>) {
             return a;
+        } else if constexpr (std::is_integral_v<T>) {
+            if (a >= T(0)) {
+                return a;
+            }
+            using U = std::make_unsigned_t<T>;
+            return static_cast<T>(static_cast<U>(0) - static_cast<U>(a));
         } else {
             return a < T(0) ? -a : a;
         }

@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using ctorch::abs;
@@ -128,6 +129,20 @@ TEST(UnaryExp, RejectsIntInput) {
 TEST(UnaryNeg, RejectsBoolInput) {
     auto a = make_filled<bool>({2}, dtype::bool_, {true, false});
     EXPECT_THROW(neg(a), DTypeError);
+}
+
+TEST(UnaryNeg, IntMinDoesNotOverflow) {
+    // Signed-min negation is UB by the standard; ours uses unsigned arithmetic
+    // so the bit pattern wraps cleanly to itself.
+    constexpr auto kInt32Min = std::numeric_limits<std::int32_t>::min();
+    constexpr auto kInt64Min = std::numeric_limits<std::int64_t>::min();
+    auto a = make_filled<std::int32_t>({1}, dtype::int32, {kInt32Min});
+    auto b = make_filled<std::int64_t>({1}, dtype::int64, {kInt64Min});
+    EXPECT_EQ(read_all<std::int32_t>(neg(a))[0], kInt32Min);
+    EXPECT_EQ(read_all<std::int64_t>(neg(b))[0], kInt64Min);
+    // abs(INT_MIN) likewise wraps to INT_MIN rather than triggering UB.
+    EXPECT_EQ(read_all<std::int32_t>(abs(a))[0], kInt32Min);
+    EXPECT_EQ(read_all<std::int64_t>(abs(b))[0], kInt64Min);
 }
 
 TEST(UnaryAbs, NonContiguousInputViaPermute) {

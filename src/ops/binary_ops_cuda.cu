@@ -150,6 +150,12 @@ void mul_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
     binary_dispatch_numeric(a, b, out, ops::MulF{});
 }
 void div_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
+    // Mirror the CPU front-door's refusal of integer division. Integer
+    // division by zero is undefined on the device too.
+    if (out.dtype() == dtype::int32 || out.dtype() == dtype::int64) {
+        throw DTypeError("ctorch::div: integer division is not supported; "
+                         "cast operands to float32/float64 first");
+    }
     binary_dispatch_numeric(a, b, out, ops::DivF{});
 }
 
@@ -163,6 +169,10 @@ void mul_inplace_cuda(Tensor& a, const Tensor& b) {
     binary_dispatch_numeric(a, b, a, ops::MulF{});
 }
 void div_inplace_cuda(Tensor& a, const Tensor& b) {
+    if (a.dtype() == dtype::int32 || a.dtype() == dtype::int64) {
+        throw DTypeError("ctorch::div_: integer division is not supported; "
+                         "cast operands to float32/float64 first");
+    }
     binary_dispatch_numeric(a, b, a, ops::DivF{});
 }
 
