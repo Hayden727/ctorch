@@ -42,10 +42,14 @@ class Allocator {
     virtual void deallocate(void* p, std::size_t bytes) = 0;
 };
 
-/// Returns the process-wide default allocator for \p kind. The returned
+/// Returns the process-wide default allocator for \p device. The returned
 /// pointer is owned by the runtime; callers must not delete it. Lifetime is
 /// at least until program termination.
-Allocator* default_allocator(Device::Kind kind);
+///
+/// CUDA allocators are routed by `Device::index` so each ordinal owns a
+/// distinct caching pool. This matters under multi-GPU: a tensor tagged
+/// `Device::cuda(1)` must be backed by memory that lives on device 1.
+Allocator* default_allocator(Device device);
 
 } // namespace ctorch
 

@@ -97,3 +97,21 @@ TEST(Storage, DeviceTagIsRoundtripped) {
     EXPECT_TRUE(s.device().is_cpu());
     EXPECT_EQ(s.device().index, 0);
 }
+
+// When zero_fill throws (here: requesting a CUDA storage in a CPU-only build
+// makes zero_fill raise), the just-allocated buffer must be returned to the
+// allocator. Without the try/catch in StorageImpl's constructor the buffer
+// would leak because ~StorageImpl never runs on a partially-constructed
+// object.
+TEST(Storage, ConstructorThatFailsZeroFillReturnsBufferToAllocator) {
+#if defined(CTORCH_HAS_CUDA)
+    GTEST_SKIP() << "exercise needs a build without CUDA support";
+#else
+    CountingAllocator alloc;
+    EXPECT_THROW({ ctorch::Storage s(64, ctorch::Device::cuda(0), &alloc); }, std::runtime_error);
+    EXPECT_EQ(alloc.allocate_calls, 1);
+    EXPECT_EQ(alloc.deallocate_calls, 1)
+        << "allocator must reclaim the buffer when zero_fill throws";
+    EXPECT_EQ(alloc.last_dealloc_bytes, 64u);
+#endif
+}

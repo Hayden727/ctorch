@@ -55,7 +55,16 @@ StorageImpl::StorageImpl(std::size_t nbytes, Device device, Allocator* allocator
     }
     if (nbytes_ > 0) {
         data_ = allocator_->allocate(nbytes_);
-        zero_fill(data_, nbytes_, device_);
+        // If zero_fill throws (e.g. cudaMemset failure), we are still mid-
+        // construction, so ~StorageImpl will not run and the buffer would
+        // otherwise leak. Hand it back to the allocator and rethrow.
+        try {
+            zero_fill(data_, nbytes_, device_);
+        } catch (...) {
+            allocator_->deallocate(data_, nbytes_);
+            data_ = nullptr;
+            throw;
+        }
     }
 }
 
@@ -69,7 +78,10 @@ StorageImpl::~StorageImpl() {
 
 Storage::Storage(std::size_t nbytes, Device d, Allocator* allocator) {
     if (allocator == nullptr) {
-        allocator = default_allocator(d.kind);
+        // Pass the full Device so CUDA allocators see the index, not just
+        // the kind. Otherwise a Device::cuda(1) tensor would be served by
+        // the same pool as Device::cuda(0).
+        allocator = default_allocator(d);
     }
     impl_ = intrusive_ptr<detail::StorageImpl>::make(nbytes, d, allocator);
 }

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #if defined(CTORCH_HAS_CUDA)
@@ -154,9 +155,24 @@ Tensor::Tensor(std::vector<std::int64_t> shape, ::ctorch::dtype dt, Device d) {
     impl_ = std::move(impl);
 }
 
-std::int64_t Tensor::numel() const { return shape_numel(impl_->shape); }
+[[noreturn]] void Tensor::throw_undefined(const char* fn) {
+    throw std::runtime_error(std::string("ctorch::Tensor::") + fn +
+                             ": operation on undefined tensor");
+}
 
-bool Tensor::is_contiguous() const { return is_contiguous_for(impl_->shape, impl_->stride); }
+std::int64_t Tensor::numel() const {
+    if (!impl_) {
+        throw_undefined("numel");
+    }
+    return shape_numel(impl_->shape);
+}
+
+bool Tensor::is_contiguous() const {
+    if (!impl_) {
+        throw_undefined("is_contiguous");
+    }
+    return is_contiguous_for(impl_->shape, impl_->stride);
+}
 
 Tensor Tensor::view(std::vector<std::int64_t> new_shape) const {
     if (!is_contiguous()) {
@@ -186,6 +202,9 @@ Tensor Tensor::reshape(std::vector<std::int64_t> new_shape) const {
 }
 
 Tensor Tensor::permute(std::vector<std::int64_t> dims) const {
+    if (!impl_) {
+        throw_undefined("permute");
+    }
     const std::size_t rank = impl_->shape.size();
     if (dims.size() != rank) {
         throw std::runtime_error("ctorch::Tensor::permute: dims size mismatch");

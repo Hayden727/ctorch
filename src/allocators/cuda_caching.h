@@ -34,7 +34,11 @@ inline constexpr int kCudaPoolNumSizeClasses = 32;
 
 class CudaCachingAllocator final : public Allocator {
   public:
-    CudaCachingAllocator() = default;
+    /// Each instance binds to one CUDA device ordinal. The allocator calls
+    /// `cudaSetDevice(device_index_)` before every `cudaMalloc`/`cudaFree`
+    /// so the buffer always lives on the intended device, regardless of
+    /// the calling thread's current device.
+    explicit CudaCachingAllocator(int device_index = 0) : device_index_(device_index) {}
     ~CudaCachingAllocator() override;
 
     void* allocate(std::size_t bytes) override;
@@ -47,6 +51,8 @@ class CudaCachingAllocator final : public Allocator {
 
     /// Drain every pooled block back to `cudaFree`.
     void empty_cache();
+
+    int device_index() const noexcept { return device_index_; }
 
     /// Counter incremented exactly once per real `cudaMalloc` call. Used by
     /// the caching reuse test.
@@ -68,6 +74,7 @@ class CudaCachingAllocator final : public Allocator {
         }
     };
 
+    int device_index_;
     std::mutex mu_;
     std::unordered_map<Key, std::vector<void*>, KeyHash> pool_;
 };

@@ -57,7 +57,7 @@ class StorageImpl : public intrusive_ref_counted {
 class Storage {
   public:
     /// Allocates \p nbytes via \p allocator and zero-initializes the buffer.
-    /// Passing `allocator == nullptr` falls back to `default_allocator(d.kind)`.
+    /// Passing `allocator == nullptr` falls back to `default_allocator(d)`.
     Storage(std::size_t nbytes, Device d, Allocator* allocator = nullptr);
 
     Storage() = default;
