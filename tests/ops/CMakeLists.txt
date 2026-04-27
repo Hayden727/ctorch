@@ -24,3 +24,17 @@ ctorch_add_test(unary_test
   SOURCES unary_test.cpp
   LIBS    ctorch_core
 )
+
+if(CTORCH_CUDA)
+  ctorch_add_test(cuda_smoke_test
+    SOURCES cuda_smoke_test.cpp
+    LIBS    ctorch_core CUDA::cudart
+  )
+else()
+  # Compile the placeholder in CPU-only builds too so it gets covered by
+  # gtest_discover_tests and reports a SKIP rather than disappearing.
+  ctorch_add_test(cuda_smoke_test
+    SOURCES cuda_smoke_test.cpp
+    LIBS    ctorch_core
+  )
+endif()
