@@ -35,6 +35,7 @@
 #include <vector>
 
 #if defined(CTORCH_HAS_CUDA)
+#include "reference_add_kernel.h"
 #include <cuda_runtime.h>
 #endif
 
@@ -70,31 +71,10 @@ bool cuda_available() {
     return count > 0;
 }
 
-__global__ void reference_add_kernel(float* __restrict__ out,
-                                     const float* __restrict__ a,
-                                     const float* __restrict__ b,
-                                     std::int64_t n) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (i < n) {
-        out[i] = a[i] + b[i];
-    }
-}
-
-double time_reference_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
-    const auto* ap = static_cast<const float*>(a.storage().data()) + a.offset();
-    const auto* bp = static_cast<const float*>(b.storage().data()) + b.offset();
-    auto* op_out = static_cast<float*>(out.storage().data()) + out.offset();
-    const std::int64_t n = a.numel();
-    constexpr int kBlock = 256;
-    const int blocks = static_cast<int>((n + kBlock - 1) / kBlock);
-    cudaDeviceSynchronize();
-    auto t0 = std::chrono::steady_clock::now();
-    reference_add_kernel<<<blocks, kBlock>>>(op_out, ap, bp, n);
-    cudaDeviceSynchronize();
-    auto t1 = std::chrono::steady_clock::now();
-    return std::chrono::duration<double>(t1 - t0).count();
-}
+// The hand-written reference kernel and its launch wrapper live in a
+// dedicated .cu translation unit so this file stays plain C++ — that way
+// nvcc never tries to instantiate `dispatch::call<...>` (which it
+// mishandles as an "incomplete type"). See reference_add_kernel.h.
 
 // Bypass the public `add()` front-door so the dispatch path writes into a
 // preallocated `out` instead of allocating + zero-filling a fresh tensor on
@@ -182,13 +162,13 @@ TEST(AddBench, CudaDispatchWithin10PercentOfReference) {
 
     // Warmup.
     (void)time_dispatch_cuda(a, b, out_disp);
-    (void)time_reference_cuda(a, b, out_ref);
+    (void)ctorch::bench::time_reference_add_cuda(a, b, out_ref);
 
     std::vector<double> ts_disp(kTrials);
     std::vector<double> ts_ref(kTrials);
     for (int i = 0; i < kTrials; ++i) {
         ts_disp[i] = time_dispatch_cuda(a, b, out_disp);
-        ts_ref[i] = time_reference_cuda(a, b, out_ref);
+        ts_ref[i] = ctorch::bench::time_reference_add_cuda(a, b, out_ref);
     }
     const double t_disp = median(ts_disp);
     const double t_ref = median(ts_ref);
