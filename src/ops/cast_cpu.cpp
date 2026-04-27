@@ -12,6 +12,7 @@
 #include "ops/tensor_iter.h"
 
 #include <cstdint>
+#include <type_traits>
 
 namespace ctorch::ops {
 
