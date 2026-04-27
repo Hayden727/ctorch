@@ -36,9 +36,9 @@ using ctorch::add;
 using ctorch::div;
 using ctorch::dtype;
 using ctorch::mul;
-using ctorch::parity::load_npy;
 using ctorch::sub;
 using ctorch::Tensor;
+using ctorch::parity::load_npy;
 
 namespace {
 
@@ -50,8 +50,7 @@ template <class T> const T* data_of(const Tensor& t) {
     return static_cast<const T*>(t.storage().data()) + t.offset();
 }
 
-template <class T>
-void expect_close(const Tensor& got, const Tensor& ref, double tol) {
+template <class T> void expect_close(const Tensor& got, const Tensor& ref, double tol) {
     ASSERT_EQ(got.shape(), ref.shape());
     ASSERT_EQ(got.dtype(), ref.dtype());
     // Bind the contiguous results to named tensors so their Storage stays
@@ -91,18 +90,12 @@ struct BinaryCase {
 };
 
 constexpr BinaryCase kBinary[] = {
-    {"add", "add_float32_3x4_3x4", dtype::float32},
-    {"add", "add_float32_3x1_1x4", dtype::float32},
-    {"add", "add_float64_5_5", dtype::float64},
-    {"add", "add_int32_4_4", dtype::int32},
-    {"add", "add_int64_2x3_3", dtype::int64},
-    {"sub", "sub_float32_3x4_3x4", dtype::float32},
-    {"sub", "sub_float64_2x2_2x2", dtype::float64},
-    {"sub", "sub_int32_5_5", dtype::int32},
-    {"mul", "mul_float32_3x1_1x4", dtype::float32},
-    {"mul", "mul_float64_4_4", dtype::float64},
-    {"mul", "mul_int32_3x3_3x3", dtype::int32},
-    {"div", "div_float32_4x4_4x4", dtype::float32},
+    {"add", "add_float32_3x4_3x4", dtype::float32}, {"add", "add_float32_3x1_1x4", dtype::float32},
+    {"add", "add_float64_5_5", dtype::float64},     {"add", "add_int32_4_4", dtype::int32},
+    {"add", "add_int64_2x3_3", dtype::int64},       {"sub", "sub_float32_3x4_3x4", dtype::float32},
+    {"sub", "sub_float64_2x2_2x2", dtype::float64}, {"sub", "sub_int32_5_5", dtype::int32},
+    {"mul", "mul_float32_3x1_1x4", dtype::float32}, {"mul", "mul_float64_4_4", dtype::float64},
+    {"mul", "mul_int32_3x3_3x3", dtype::int32},     {"div", "div_float32_4x4_4x4", dtype::float32},
     {"div", "div_float64_3_3", dtype::float64},
 };
 

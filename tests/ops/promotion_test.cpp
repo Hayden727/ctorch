@@ -25,7 +25,8 @@ TEST(Promotion, Identity) {
 }
 
 TEST(Promotion, Symmetric) {
-    constexpr dtype kAll[] = {dtype::bool_, dtype::int32, dtype::int64, dtype::float32, dtype::float64};
+    constexpr dtype kAll[] = {dtype::bool_, dtype::int32, dtype::int64, dtype::float32,
+                              dtype::float64};
     for (dtype a : kAll) {
         for (dtype b : kAll) {
             EXPECT_EQ(promote_types(a, b), promote_types(b, a)) << "asymmetry";

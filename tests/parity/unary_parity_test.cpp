@@ -27,12 +27,12 @@ using ctorch::dtype;
 using ctorch::exp;
 using ctorch::log;
 using ctorch::neg;
-using ctorch::parity::load_npy;
 using ctorch::relu;
 using ctorch::sigmoid;
 using ctorch::sqrt;
 using ctorch::tanh;
 using ctorch::Tensor;
+using ctorch::parity::load_npy;
 
 namespace {
 
@@ -44,8 +44,7 @@ template <class T> const T* data_of(const Tensor& t) {
     return static_cast<const T*>(t.storage().data()) + t.offset();
 }
 
-template <class T>
-void expect_close(const Tensor& got, const Tensor& ref, double tol) {
+template <class T> void expect_close(const Tensor& got, const Tensor& ref, double tol) {
     ASSERT_EQ(got.shape(), ref.shape());
     ASSERT_EQ(got.dtype(), ref.dtype());
     // Bind the contiguous results to named tensors so their Storage stays

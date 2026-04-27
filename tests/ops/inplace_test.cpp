@@ -59,8 +59,7 @@ TEST(InplaceMul, BroadcastsRhs) {
     auto a = make_filled<float>({2, 3}, dtype::float32, {1, 2, 3, 4, 5, 6});
     auto b = make_filled<float>({3}, dtype::float32, {10, 100, 1000});
     mul_(a, b);
-    EXPECT_EQ(read_all<float>(a),
-              (std::vector<float>{10, 200, 3000, 40, 500, 6000}));
+    EXPECT_EQ(read_all<float>(a), (std::vector<float>{10, 200, 3000, 40, 500, 6000}));
 }
 
 TEST(InplaceSub, RejectsShapeChange) {
@@ -86,8 +85,7 @@ TEST(InplaceAdd, AcceptsExactSelfAlias) {
 }
 
 TEST(InplaceAdd, RejectsNonTrivialAliasViaPermute) {
-    auto a = make_filled<float>({3, 3}, dtype::float32,
-                                {1, 2, 3, 4, 5, 6, 7, 8, 9});
+    auto a = make_filled<float>({3, 3}, dtype::float32, {1, 2, 3, 4, 5, 6, 7, 8, 9});
     // Permute creates a same-storage view with different stride pattern —
     // overlapping byte ranges but not a same-view operand.
     auto a_t = a.permute({1, 0});

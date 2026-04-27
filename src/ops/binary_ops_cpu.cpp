@@ -43,7 +43,7 @@ void binary_kernel_cpu(const Tensor& a, const Tensor& b, Tensor& out, Op op) {
         const auto* bp = static_cast<const T*>(b.storage().data()) + b.offset();
         auto* op_out = static_cast<T*>(out.storage().data()) + out.offset();
         const auto n = out.numel();
-        #pragma omp simd
+#pragma omp simd
         for (std::int64_t i = 0; i < n; ++i) {
             op_out[i] = op(ap[i], bp[i]);
         }
@@ -54,8 +54,7 @@ void binary_kernel_cpu(const Tensor& a, const Tensor& b, Tensor& out, Op op) {
     const auto* a_base = static_cast<const T*>(a.storage().data());
     const auto* b_base = static_cast<const T*>(b.storage().data());
     auto* out_base = static_cast<T*>(out.storage().data());
-    ops::for_each_n_binary(ctx, [&](std::int64_t a_off, std::int64_t b_off,
-                                    std::int64_t out_off) {
+    ops::for_each_n_binary(ctx, [&](std::int64_t a_off, std::int64_t b_off, std::int64_t out_off) {
         out_base[out_off] = op(a_base[a_off], b_base[b_off]);
     });
 }
@@ -107,15 +106,9 @@ void div_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
     binary_dispatch_numeric(a, b, out, ops::DivF{});
 }
 
-void add_inplace_cpu(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::AddF{});
-}
-void sub_inplace_cpu(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::SubF{});
-}
-void mul_inplace_cpu(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::MulF{});
-}
+void add_inplace_cpu(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::AddF{}); }
+void sub_inplace_cpu(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::SubF{}); }
+void mul_inplace_cpu(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::MulF{}); }
 void div_inplace_cpu(Tensor& a, const Tensor& b) {
     if (a.dtype() == dtype::int32 || a.dtype() == dtype::int64) {
         throw DTypeError("ctorch::div_: integer division is not supported; "
@@ -185,13 +178,11 @@ bool same_view(const Tensor& a, const Tensor& b) {
 
 void check_devices_match(const Tensor& a, const Tensor& b, const char* op) {
     if (a.device() != b.device()) {
-        throw DeviceError(std::string("ctorch::") + op +
-                          ": operands are on different devices");
+        throw DeviceError(std::string("ctorch::") + op + ": operands are on different devices");
     }
 }
 
-template <class OpKey>
-Tensor binary_front(const Tensor& a, const Tensor& b, const char* name) {
+template <class OpKey> Tensor binary_front(const Tensor& a, const Tensor& b, const char* name) {
     check_devices_match(a, b, name);
     const auto promoted = promote_types(a.dtype(), b.dtype());
     Tensor a2 = maybe_cast(a, promoted);
@@ -202,8 +193,7 @@ Tensor binary_front(const Tensor& a, const Tensor& b, const char* name) {
     return out;
 }
 
-template <class OpKey>
-Tensor& binary_inplace_front(Tensor& a, const Tensor& b, const char* name) {
+template <class OpKey> Tensor& binary_inplace_front(Tensor& a, const Tensor& b, const char* name) {
     check_devices_match(a, b, name);
     const auto promoted = promote_types(a.dtype(), b.dtype());
     if (a.dtype() != promoted) {
@@ -236,9 +226,17 @@ Tensor sub(const Tensor& a, const Tensor& b) { return binary_front<op::SubOp>(a,
 Tensor mul(const Tensor& a, const Tensor& b) { return binary_front<op::MulOp>(a, b, "mul"); }
 Tensor div(const Tensor& a, const Tensor& b) { return binary_front<op::DivOp>(a, b, "div"); }
 
-Tensor& add_(Tensor& a, const Tensor& b) { return binary_inplace_front<op::AddInplaceOp>(a, b, "add_"); }
-Tensor& sub_(Tensor& a, const Tensor& b) { return binary_inplace_front<op::SubInplaceOp>(a, b, "sub_"); }
-Tensor& mul_(Tensor& a, const Tensor& b) { return binary_inplace_front<op::MulInplaceOp>(a, b, "mul_"); }
-Tensor& div_(Tensor& a, const Tensor& b) { return binary_inplace_front<op::DivInplaceOp>(a, b, "div_"); }
+Tensor& add_(Tensor& a, const Tensor& b) {
+    return binary_inplace_front<op::AddInplaceOp>(a, b, "add_");
+}
+Tensor& sub_(Tensor& a, const Tensor& b) {
+    return binary_inplace_front<op::SubInplaceOp>(a, b, "sub_");
+}
+Tensor& mul_(Tensor& a, const Tensor& b) {
+    return binary_inplace_front<op::MulInplaceOp>(a, b, "mul_");
+}
+Tensor& div_(Tensor& a, const Tensor& b) {
+    return binary_inplace_front<op::DivInplaceOp>(a, b, "div_");
+}
 
 } // namespace ctorch

@@ -50,8 +50,8 @@ template <class T> std::vector<T> read_all(const Tensor& t) {
     return std::vector<T>(p, p + t.numel());
 }
 
-template <class T> void expect_near(const std::vector<T>& got,
-                                    const std::vector<T>& expected, T tol) {
+template <class T>
+void expect_near(const std::vector<T>& got, const std::vector<T>& expected, T tol) {
     ASSERT_EQ(got.size(), expected.size());
     for (std::size_t i = 0; i < got.size(); ++i) {
         EXPECT_NEAR(got[i], expected[i], tol) << "i=" << i;
@@ -65,8 +65,7 @@ TEST(UnaryNeg, FloatAndInt) {
     EXPECT_EQ(read_all<float>(neg(a)), (std::vector<float>{-1.0f, 2.0f, -3.5f}));
 
     auto b = make_filled<std::int64_t>({4}, dtype::int64, {1, -2, 3, 0});
-    EXPECT_EQ(read_all<std::int64_t>(neg(b)),
-              (std::vector<std::int64_t>{-1, 2, -3, 0}));
+    EXPECT_EQ(read_all<std::int64_t>(neg(b)), (std::vector<std::int64_t>{-1, 2, -3, 0}));
 }
 
 TEST(UnaryAbs, FloatAndInt) {
@@ -79,14 +78,12 @@ TEST(UnaryAbs, FloatAndInt) {
 
 TEST(UnaryRelu, ClampsNegativeToZero) {
     auto a = make_filled<float>({4}, dtype::float32, {-1.0f, 0.0f, 0.5f, 2.0f});
-    EXPECT_EQ(read_all<float>(relu(a)),
-              (std::vector<float>{0.0f, 0.0f, 0.5f, 2.0f}));
+    EXPECT_EQ(read_all<float>(relu(a)), (std::vector<float>{0.0f, 0.0f, 0.5f, 2.0f}));
 }
 
 TEST(UnaryExp, KnownValues) {
     auto a = make_filled<float>({3}, dtype::float32, {0.0f, 1.0f, 2.0f});
-    expect_near<float>(read_all<float>(exp(a)),
-                       {1.0f, std::exp(1.0f), std::exp(2.0f)}, 1e-5f);
+    expect_near<float>(read_all<float>(exp(a)), {1.0f, std::exp(1.0f), std::exp(2.0f)}, 1e-5f);
 }
 
 TEST(UnaryLog, KnownValues) {
@@ -147,8 +144,7 @@ TEST(UnaryNeg, IntMinDoesNotOverflow) {
 
 TEST(UnaryAbs, NonContiguousInputViaPermute) {
     // a is (2,3) contiguous; permute to (3,2) — non-contiguous strides.
-    auto a = make_filled<float>({2, 3}, dtype::float32,
-                                {1.0f, -2.0f, 3.0f, -4.0f, 5.0f, -6.0f});
+    auto a = make_filled<float>({2, 3}, dtype::float32, {1.0f, -2.0f, 3.0f, -4.0f, 5.0f, -6.0f});
     auto a_t = a.permute({1, 0});
     EXPECT_FALSE(a_t.is_contiguous());
     auto out = abs(a_t);
@@ -161,6 +157,5 @@ TEST(UnaryAbs, NonContiguousInputViaPermute) {
     //   1 4
     //   2 5
     //   3 6
-    EXPECT_EQ(read_all<float>(out),
-              (std::vector<float>{1.0f, 4.0f, 2.0f, 5.0f, 3.0f, 6.0f}));
+    EXPECT_EQ(read_all<float>(out), (std::vector<float>{1.0f, 4.0f, 2.0f, 5.0f, 3.0f, 6.0f}));
 }

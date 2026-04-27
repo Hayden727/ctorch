@@ -45,7 +45,7 @@ TEST(Broadcast, EqualShapesPreserveStrides) {
 }
 
 TEST(Broadcast, ScalarPlusVectorPadsLeadingOne) {
-    auto a = make({});       // 0-d scalar
+    auto a = make({}); // 0-d scalar
     auto b = make({5});
     auto br = broadcast_two(a, b);
     EXPECT_EQ(br.out_shape, std::vector<std::int64_t>({5}));

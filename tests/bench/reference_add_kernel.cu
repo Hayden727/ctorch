@@ -19,12 +19,9 @@ namespace ctorch::bench {
 
 namespace {
 
-__global__ void reference_add_kernel(float* __restrict__ out,
-                                     const float* __restrict__ a,
-                                     const float* __restrict__ b,
-                                     std::int64_t n) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+__global__ void reference_add_kernel(float* __restrict__ out, const float* __restrict__ a,
+                                     const float* __restrict__ b, std::int64_t n) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i < n) {
         out[i] = a[i] + b[i];
     }

@@ -43,20 +43,17 @@ inline int blocks_for(std::int64_t n) {
 void check_cuda(const char* what) {
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        throw DeviceError(std::string("ctorch::") + what + ": CUDA error: " +
-                          cudaGetErrorString(err));
+        throw DeviceError(std::string("ctorch::") + what +
+                          ": CUDA error: " + cudaGetErrorString(err));
     }
 }
 
 // ---- Templated kernels ---------------------------------------------------
 
 template <class T, class Op>
-__global__ void binary_kernel_contig(T* __restrict__ out,
-                                     const T* __restrict__ a,
-                                     const T* __restrict__ b,
-                                     std::int64_t n, Op op) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+__global__ void binary_kernel_contig(T* __restrict__ out, const T* __restrict__ a,
+                                     const T* __restrict__ b, std::int64_t n, Op op) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i < n) {
         out[i] = op(a[i], b[i]);
     }
@@ -65,8 +62,7 @@ __global__ void binary_kernel_contig(T* __restrict__ out,
 template <class T, class Op>
 __global__ void binary_kernel_strided(T* out_base, const T* a_base, const T* b_base,
                                       ops::BinaryIndexer ctx, Op op) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i >= ctx.n) {
         return;
     }
@@ -159,15 +155,9 @@ void div_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
     binary_dispatch_numeric(a, b, out, ops::DivF{});
 }
 
-void add_inplace_cuda(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::AddF{});
-}
-void sub_inplace_cuda(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::SubF{});
-}
-void mul_inplace_cuda(Tensor& a, const Tensor& b) {
-    binary_dispatch_numeric(a, b, a, ops::MulF{});
-}
+void add_inplace_cuda(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::AddF{}); }
+void sub_inplace_cuda(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::SubF{}); }
+void mul_inplace_cuda(Tensor& a, const Tensor& b) { binary_dispatch_numeric(a, b, a, ops::MulF{}); }
 void div_inplace_cuda(Tensor& a, const Tensor& b) {
     if (a.dtype() == dtype::int32 || a.dtype() == dtype::int64) {
         throw DTypeError("ctorch::div_: integer division is not supported; "

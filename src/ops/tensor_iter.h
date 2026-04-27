@@ -59,8 +59,8 @@ struct UnaryIndexer {
 
 /// Build a binary indexer from precomputed broadcast information and the
 /// preallocated output tensor.
-BinaryIndexer make_binary_indexer(const Tensor& a, const Tensor& b,
-                                  const Tensor& out, const BroadcastResult& br);
+BinaryIndexer make_binary_indexer(const Tensor& a, const Tensor& b, const Tensor& out,
+                                  const BroadcastResult& br);
 
 /// Build a unary indexer for `out = f(in)`.
 UnaryIndexer make_unary_indexer(const Tensor& in, const Tensor& out);

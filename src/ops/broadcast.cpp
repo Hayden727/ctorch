@@ -67,8 +67,8 @@ BroadcastResult broadcast_two(const Tensor& a, const Tensor& b) {
         } else if (db == 1) {
             out_dim = da;
         } else {
-            throw ShapeError("ctorch: cannot broadcast shapes " +
-                             shape_to_string(sa) + " and " + shape_to_string(sb));
+            throw ShapeError("ctorch: cannot broadcast shapes " + shape_to_string(sa) + " and " +
+                             shape_to_string(sb));
         }
         out.out_shape[i] = out_dim;
 

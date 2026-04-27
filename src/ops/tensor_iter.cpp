@@ -38,8 +38,8 @@ std::int64_t product(const std::array<std::int64_t, kMaxRank>& a, int rank) {
 
 } // namespace
 
-BinaryIndexer make_binary_indexer(const Tensor& a, const Tensor& b,
-                                  const Tensor& out, const BroadcastResult& br) {
+BinaryIndexer make_binary_indexer(const Tensor& a, const Tensor& b, const Tensor& out,
+                                  const BroadcastResult& br) {
     const std::size_t r = br.out_shape.size();
     if (r > kMaxRank) {
         throw ShapeError("ctorch: broadcast rank exceeds kMaxRank=8");
@@ -75,8 +75,8 @@ UnaryIndexer make_unary_indexer(const Tensor& in, const Tensor& out) {
 
 bool can_use_contiguous_path(const Tensor& a, const Tensor& b, const Tensor& out) {
     return a.is_contiguous() && b.is_contiguous() && out.is_contiguous() &&
-           a.shape() == b.shape() && a.shape() == out.shape() &&
-           a.dtype() == out.dtype() && b.dtype() == out.dtype();
+           a.shape() == b.shape() && a.shape() == out.shape() && a.dtype() == out.dtype() &&
+           b.dtype() == out.dtype();
 }
 
 bool can_use_contiguous_path(const Tensor& in, const Tensor& out) {
@@ -101,7 +101,8 @@ bool may_overlap(const Tensor& dst, const Tensor& src) {
                 extent_bytes += (shape[d] - 1) * std::abs(stride[d]) * elem_size;
             }
         }
-        return std::pair<std::int64_t, std::int64_t>{base_bytes, base_bytes + extent_bytes + elem_size};
+        return std::pair<std::int64_t, std::int64_t>{base_bytes,
+                                                     base_bytes + extent_bytes + elem_size};
     };
     const auto [d_lo, d_hi] = byte_range(dst);
     const auto [s_lo, s_hi] = byte_range(src);

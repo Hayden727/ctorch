@@ -74,8 +74,7 @@ TEST(BinaryMul, BroadcastColumnByRow) {
     //   1 2 3 4
     //   2 4 6 8
     //   3 6 9 12
-    EXPECT_EQ(read_all<float>(c),
-              (std::vector<float>{1, 2, 3, 4, 2, 4, 6, 8, 3, 6, 9, 12}));
+    EXPECT_EQ(read_all<float>(c), (std::vector<float>{1, 2, 3, 4, 2, 4, 6, 8, 3, 6, 9, 12}));
 }
 
 TEST(BinaryDiv, FloatDivision) {
@@ -114,8 +113,7 @@ TEST(BinaryAdd, MultiDimRightAlignedBroadcast) {
         for (int j = 0; j < 3; ++j) {
             for (int k = 0; k < 4; ++k) {
                 const int idx = i * 12 + j * 4 + k;
-                EXPECT_EQ(got[idx], (i * 12 + j * 4 + k) + (j * 4 + k) * 100)
-                    << "idx " << idx;
+                EXPECT_EQ(got[idx], (i * 12 + j * 4 + k) + (j * 4 + k) * 100) << "idx " << idx;
             }
         }
     }
@@ -170,6 +168,5 @@ TEST(BinaryAdd, NonContiguousRhsViaPermute) {
     // c = a + b:
     //   11 32 53
     //   24 45 66
-    EXPECT_EQ(read_all<float>(c),
-              (std::vector<float>{11.0f, 32.0f, 53.0f, 24.0f, 45.0f, 66.0f}));
+    EXPECT_EQ(read_all<float>(c), (std::vector<float>{11.0f, 32.0f, 53.0f, 24.0f, 45.0f, 66.0f}));
 }

@@ -44,8 +44,7 @@ dtype descr_to_dtype(const std::string& descr) {
     if (descr == "|b1" || descr == "b1" || descr == "?") {
         return dtype::bool_;
     }
-    throw DTypeError("ctorch::load_npy: dtype '" + descr +
-                     "' not yet supported by ctorch::dtype");
+    throw DTypeError("ctorch::load_npy: dtype '" + descr + "' not yet supported by ctorch::dtype");
 }
 
 // Extracts the value associated with a key like `'descr'` from an NPY
@@ -102,8 +101,7 @@ std::vector<std::int64_t> parse_shape(const std::string& tuple) {
             break;
         }
         std::size_t end = i;
-        while (end < tuple.size() && tuple[end] != ',' && tuple[end] != ')' &&
-               tuple[end] != ' ') {
+        while (end < tuple.size() && tuple[end] != ',' && tuple[end] != ')' && tuple[end] != ' ') {
             ++end;
         }
         const std::string num = tuple.substr(i, end - i);
@@ -156,11 +154,10 @@ Tensor load_npy(const std::string& path) {
     const unsigned char major = head[6];
     const unsigned char minor = head[7];
     if (major != 1 || minor != 0) {
-        throw Error("ctorch::load_npy: only NPY v1.0 supported (got " +
-                    std::to_string(major) + "." + std::to_string(minor) + ")");
+        throw Error("ctorch::load_npy: only NPY v1.0 supported (got " + std::to_string(major) +
+                    "." + std::to_string(minor) + ")");
     }
-    const std::uint16_t header_len =
-        static_cast<std::uint16_t>(head[8] | (head[9] << 8));
+    const std::uint16_t header_len = static_cast<std::uint16_t>(head[8] | (head[9] << 8));
 
     std::string header(header_len, '\0');
     f.read(header.data(), header_len);
@@ -179,8 +176,7 @@ Tensor load_npy(const std::string& path) {
     const auto shape = parse_shape(shape_s);
 
     Tensor out(shape, dt, Device::cpu());
-    const std::size_t nbytes =
-        static_cast<std::size_t>(numel_of(shape)) * size_of(dt);
+    const std::size_t nbytes = static_cast<std::size_t>(numel_of(shape)) * size_of(dt);
     if (nbytes > 0) {
         f.read(static_cast<char*>(out.storage().data()), static_cast<std::streamsize>(nbytes));
         if (!f) {

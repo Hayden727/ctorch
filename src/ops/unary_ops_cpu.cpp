@@ -34,13 +34,12 @@ namespace {
 
 // ---- Templated kernels ---------------------------------------------------
 
-template <class T, class Op>
-void unary_kernel_cpu(const Tensor& in, Tensor& out, Op op) {
+template <class T, class Op> void unary_kernel_cpu(const Tensor& in, Tensor& out, Op op) {
     if (ops::can_use_contiguous_path(in, out)) {
         const auto* ip = static_cast<const T*>(in.storage().data()) + in.offset();
         auto* op_out = static_cast<T*>(out.storage().data()) + out.offset();
         const auto n = out.numel();
-        #pragma omp simd
+#pragma omp simd
         for (std::int64_t i = 0; i < n; ++i) {
             op_out[i] = op(ip[i]);
         }
@@ -56,8 +55,7 @@ void unary_kernel_cpu(const Tensor& in, Tensor& out, Op op) {
 
 // Dispatch on dtype for ops that accept any signed numeric type.
 template <class Op>
-void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op,
-                                   const char* name) {
+void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op, const char* name) {
     switch (out.dtype()) {
     case dtype::float32:
         unary_kernel_cpu<float>(in, out, op);
@@ -75,8 +73,7 @@ void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op,
         throw DTypeError(std::string("ctorch::") + name +
                          ": not defined on bool — promote to int32 first");
     case dtype::bfloat16:
-        throw DTypeError(std::string("ctorch::") + name +
-                         ": bfloat16 not supported in Issue 03");
+        throw DTypeError(std::string("ctorch::") + name + ": bfloat16 not supported in Issue 03");
     }
 }
 
@@ -96,8 +93,7 @@ void unary_dispatch_float(const Tensor& in, Tensor& out, Op op, const char* name
         throw DTypeError(std::string("ctorch::") + name +
                          ": only float32/float64 inputs are supported");
     case dtype::bfloat16:
-        throw DTypeError(std::string("ctorch::") + name +
-                         ": bfloat16 not supported in Issue 03");
+        throw DTypeError(std::string("ctorch::") + name + ": bfloat16 not supported in Issue 03");
     }
 }
 
@@ -112,12 +108,8 @@ void abs_cpu(const Tensor& in, Tensor& out) {
 void relu_cpu(const Tensor& in, Tensor& out) {
     unary_dispatch_signed_numeric(in, out, ops::ReluF{}, "relu");
 }
-void exp_cpu(const Tensor& in, Tensor& out) {
-    unary_dispatch_float(in, out, ops::ExpF{}, "exp");
-}
-void log_cpu(const Tensor& in, Tensor& out) {
-    unary_dispatch_float(in, out, ops::LogF{}, "log");
-}
+void exp_cpu(const Tensor& in, Tensor& out) { unary_dispatch_float(in, out, ops::ExpF{}, "exp"); }
+void log_cpu(const Tensor& in, Tensor& out) { unary_dispatch_float(in, out, ops::LogF{}, "log"); }
 void sqrt_cpu(const Tensor& in, Tensor& out) {
     unary_dispatch_float(in, out, ops::SqrtF{}, "sqrt");
 }
@@ -155,8 +147,7 @@ const CPUUnaryRegistrar kCpuUnaryRegistrar{};
 
 // ---- Front-door helpers ---------------------------------------------------
 
-template <class OpKey>
-Tensor unary_front(const Tensor& in) {
+template <class OpKey> Tensor unary_front(const Tensor& in) {
     Tensor out(in.shape(), in.dtype(), in.device());
     dispatch::call<OpKey>(in.device().kind, in, out);
     return out;

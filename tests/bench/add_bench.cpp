@@ -57,8 +57,8 @@ double median(std::vector<double>& xs) {
 void emit_csv(const char* op, const char* backend, std::int64_t n, double seconds) {
     const double bytes = 3.0 * n * static_cast<double>(sizeof(float));
     const double gbps = (bytes / seconds) * 1e-9;
-    std::cout << "csv," << op << "," << backend << "," << n << ","
-              << seconds << "," << gbps << "\n";
+    std::cout << "csv," << op << "," << backend << "," << n << "," << seconds << "," << gbps
+              << "\n";
 }
 
 #if defined(CTORCH_HAS_CUDA)
@@ -106,7 +106,7 @@ double time_reference_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
     auto* op_out = static_cast<float*>(out.storage().data()) + out.offset();
     const std::int64_t n = a.numel();
     auto t0 = std::chrono::steady_clock::now();
-    #pragma omp simd
+#pragma omp simd
     for (std::int64_t i = 0; i < n; ++i) {
         op_out[i] = ap[i] + bp[i];
     }
@@ -175,16 +175,14 @@ TEST(AddBench, CudaDispatchWithin10PercentOfReference) {
     const double ratio = t_disp / t_ref;
     emit_csv("add", "cuda_dispatch", kN, t_disp);
     emit_csv("add", "cuda_reference", kN, t_ref);
-    std::cout << "csv,add,cuda_dispatch_over_reference," << kN << "," << ratio
-              << ",1\n";
+    std::cout << "csv,add,cuda_dispatch_over_reference," << kN << "," << ratio << ",1\n";
     // The N2 acceptance target (Issue 03 §2.2) is 1.10×, but jitter on
     // shared / thermally-throttled GPUs routinely pushes a healthy run
     // past that bound. We keep the actual ratio in the CSV log so CI
     // shows the real number, and only assert on a much looser gate
     // (2.0×) that catches gross regressions without producing flakes.
-    EXPECT_LE(ratio, 2.0)
-        << "dispatch median=" << t_disp << "s reference median=" << t_ref
-        << "s ratio=" << ratio;
+    EXPECT_LE(ratio, 2.0) << "dispatch median=" << t_disp << "s reference median=" << t_ref
+                          << "s ratio=" << ratio;
 }
 
 #endif // CTORCH_HAS_CUDA

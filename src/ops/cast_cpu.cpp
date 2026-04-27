@@ -26,8 +26,7 @@ template <class Src, class Dst> Dst static_cast_value(Src x) {
     }
 }
 
-template <class Src, class Dst>
-void copy_with_cast(const Tensor& in, Tensor& out) {
+template <class Src, class Dst> void copy_with_cast(const Tensor& in, Tensor& out) {
     const auto* in_base = static_cast<const Src*>(in.storage().data());
     auto* out_base = static_cast<Dst*>(out.storage().data());
     const auto ctx = make_unary_indexer(in, out);

@@ -45,8 +45,7 @@ bool cuda_available() {
     return count > 0;
 }
 
-Tensor cpu_filled(std::vector<std::int64_t> shape, dtype dt,
-                  std::initializer_list<float> values) {
+Tensor cpu_filled(std::vector<std::int64_t> shape, dtype dt, std::initializer_list<float> values) {
     Tensor t(std::move(shape), dt, Device::cpu());
     auto* p = static_cast<float*>(t.storage().data());
     std::int64_t i = 0;
@@ -75,8 +74,7 @@ TEST(CudaSmoke, AddF32SameShape) {
     auto c_gpu = add(a_gpu, b_gpu);
     EXPECT_EQ(c_gpu.device().kind, Device::Kind::CUDA);
     auto c_cpu = c_gpu.to(Device::cpu());
-    EXPECT_EQ(read_all_cpu(c_cpu),
-              (std::vector<float>{11.0f, 22.0f, 33.0f, 44.0f}));
+    EXPECT_EQ(read_all_cpu(c_cpu), (std::vector<float>{11.0f, 22.0f, 33.0f, 44.0f}));
 }
 
 TEST(CudaSmoke, MulBroadcastColumnByRow) {
@@ -97,8 +95,7 @@ TEST(CudaSmoke, ReluClampsNegatives) {
     }
     auto x = cpu_filled({4}, dtype::float32, {-1.0f, 0.0f, 0.5f, 2.0f});
     auto y = relu(x.to(Device::cuda())).to(Device::cpu());
-    EXPECT_EQ(read_all_cpu(y),
-              (std::vector<float>{0.0f, 0.0f, 0.5f, 2.0f}));
+    EXPECT_EQ(read_all_cpu(y), (std::vector<float>{0.0f, 0.0f, 0.5f, 2.0f}));
 }
 
 TEST(CudaSmoke, AddPromotesIntPlusFloatOnGpu) {
@@ -114,14 +111,11 @@ TEST(CudaSmoke, AddPromotesIntPlusFloatOnGpu) {
     auto f = cpu_filled({2}, dtype::float32, {0.5f, 0.25f});
     auto c_gpu = add(i.to(Device::cuda()), f.to(Device::cuda()));
     EXPECT_EQ(c_gpu.dtype(), dtype::float32);
-    EXPECT_EQ(read_all_cpu(c_gpu.to(Device::cpu())),
-              (std::vector<float>{1.5f, 2.25f}));
+    EXPECT_EQ(read_all_cpu(c_gpu.to(Device::cpu())), (std::vector<float>{1.5f, 2.25f}));
 }
 
 #else
 
-TEST(CudaSmoke, BuildWithoutCudaSkips) {
-    GTEST_SKIP() << "ctorch built without CUDA support";
-}
+TEST(CudaSmoke, BuildWithoutCudaSkips) { GTEST_SKIP() << "ctorch built without CUDA support"; }
 
 #endif // CTORCH_HAS_CUDA

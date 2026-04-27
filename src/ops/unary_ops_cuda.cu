@@ -40,29 +40,25 @@ inline int blocks_for(std::int64_t n) {
 void check_cuda(const char* what) {
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        throw DeviceError(std::string("ctorch::") + what + ": CUDA error: " +
-                          cudaGetErrorString(err));
+        throw DeviceError(std::string("ctorch::") + what +
+                          ": CUDA error: " + cudaGetErrorString(err));
     }
 }
 
 // ---- Templated kernels ---------------------------------------------------
 
 template <class T, class Op>
-__global__ void unary_kernel_contig(T* __restrict__ out,
-                                    const T* __restrict__ in,
-                                    std::int64_t n, Op op) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+__global__ void unary_kernel_contig(T* __restrict__ out, const T* __restrict__ in, std::int64_t n,
+                                    Op op) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i < n) {
         out[i] = op(in[i]);
     }
 }
 
 template <class T, class Op>
-__global__ void unary_kernel_strided(T* out_base, const T* in_base,
-                                     ops::UnaryIndexer ctx, Op op) {
-    const std::int64_t i =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+__global__ void unary_kernel_strided(T* out_base, const T* in_base, ops::UnaryIndexer ctx, Op op) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i >= ctx.n) {
         return;
     }
@@ -78,8 +74,7 @@ __global__ void unary_kernel_strided(T* out_base, const T* in_base,
     out_base[out_off] = op(in_base[in_off]);
 }
 
-template <class T, class Op>
-void launch_unary(const Tensor& in, Tensor& out, Op op) {
+template <class T, class Op> void launch_unary(const Tensor& in, Tensor& out, Op op) {
     // Pin the calling thread to the tensor's CUDA device so launches and
     // memory accesses go to the right context on multi-GPU hosts.
     cuda::DeviceGuard device_guard(out.device().index);
@@ -106,8 +101,7 @@ void launch_unary(const Tensor& in, Tensor& out, Op op) {
 }
 
 template <class Op>
-void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op,
-                                   const char* name) {
+void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op, const char* name) {
     switch (out.dtype()) {
     case dtype::float32:
         launch_unary<float>(in, out, op);
@@ -125,8 +119,7 @@ void unary_dispatch_signed_numeric(const Tensor& in, Tensor& out, Op op,
         throw DTypeError(std::string("ctorch::") + name +
                          ": not defined on bool — promote to int32 first");
     case dtype::bfloat16:
-        throw DTypeError(std::string("ctorch::") + name +
-                         ": bfloat16 not supported in Issue 03");
+        throw DTypeError(std::string("ctorch::") + name + ": bfloat16 not supported in Issue 03");
     }
 }
 
@@ -145,8 +138,7 @@ void unary_dispatch_float(const Tensor& in, Tensor& out, Op op, const char* name
         throw DTypeError(std::string("ctorch::") + name +
                          ": only float32/float64 inputs are supported");
     case dtype::bfloat16:
-        throw DTypeError(std::string("ctorch::") + name +
-                         ": bfloat16 not supported in Issue 03");
+        throw DTypeError(std::string("ctorch::") + name + ": bfloat16 not supported in Issue 03");
     }
 }
 
@@ -161,12 +153,8 @@ void abs_cuda(const Tensor& in, Tensor& out) {
 void relu_cuda(const Tensor& in, Tensor& out) {
     unary_dispatch_signed_numeric(in, out, ops::ReluF{}, "relu");
 }
-void exp_cuda(const Tensor& in, Tensor& out) {
-    unary_dispatch_float(in, out, ops::ExpF{}, "exp");
-}
-void log_cuda(const Tensor& in, Tensor& out) {
-    unary_dispatch_float(in, out, ops::LogF{}, "log");
-}
+void exp_cuda(const Tensor& in, Tensor& out) { unary_dispatch_float(in, out, ops::ExpF{}, "exp"); }
+void log_cuda(const Tensor& in, Tensor& out) { unary_dispatch_float(in, out, ops::LogF{}, "log"); }
 void sqrt_cuda(const Tensor& in, Tensor& out) {
     unary_dispatch_float(in, out, ops::SqrtF{}, "sqrt");
 }
