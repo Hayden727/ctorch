@@ -1,0 +1,30 @@
+# See https://pre-commit.com for usage and config reference.
+#
+# Local setup:
+#   pip install pre-commit
+#   pre-commit install            # installs the git hook
+#   pre-commit run --all-files    # run all hooks against the whole tree
+#
+# CI mirrors this file via the `lint` job in .github/workflows/ci.yml,
+# so any hook listed here is enforced both locally and in CI. Keep the
+# clang-format mirror's major version aligned with CI's clang-format-16.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v16.0.6
+    hooks:
+      - id: clang-format
+        types_or: [c++, c, cuda]
