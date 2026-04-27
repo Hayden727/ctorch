@@ -13,6 +13,8 @@
 
 #include "allocators/cuda_caching.h"
 
+#include "cuda/device_guard.h"
+
 #include <bit>
 #include <stdexcept>
 
@@ -63,6 +65,7 @@ void* CudaCachingAllocator::allocate_on_stream(std::size_t bytes, cudaStream_t s
         }
     }
 
+    ctorch::cuda::DeviceGuard guard(device_index_); // restores caller's device on scope exit
     void* p = nullptr;
     cudaError_t err = cudaMalloc(&p, pow2);
     if (err != cudaSuccess || p == nullptr) {
@@ -86,6 +89,12 @@ void CudaCachingAllocator::deallocate_on_stream(void* p, std::size_t bytes, cuda
 
 void CudaCachingAllocator::empty_cache() {
     std::lock_guard<std::mutex> lock(mu_);
+    // Best-effort save/restore around cudaFree. We can't use a DeviceGuard
+    // here because this function is also reachable from the destructor and
+    // any throw from the guard would terminate. Failures are swallowed.
+    int prev = 0;
+    (void)cudaGetDevice(&prev);
+    (void)cudaSetDevice(device_index_);
     for (auto& [key, blocks] : pool_) {
         for (void* p : blocks) {
             (void)cudaFree(p);
@@ -93,6 +102,7 @@ void CudaCachingAllocator::empty_cache() {
         blocks.clear();
     }
     pool_.clear();
+    (void)cudaSetDevice(prev);
 }
 
 std::int64_t CudaCachingAllocator::cuda_malloc_count() {

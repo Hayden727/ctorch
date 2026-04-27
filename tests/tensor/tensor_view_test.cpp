@@ -133,3 +133,20 @@ TEST(Tensor, PermuteRejectsBadDims) {
     EXPECT_THROW((void)t.permute({0, 0}), std::runtime_error);
     EXPECT_THROW((void)t.permute({0}), std::runtime_error);
 }
+
+// Default-constructed Tensors are intentionally undefined; reading from
+// them must throw a controlled error rather than null-deref through impl_.
+TEST(Tensor, AccessorsOnUndefinedTensorThrow) {
+    Tensor t;
+    EXPECT_FALSE(t.defined());
+
+    EXPECT_THROW((void)t.shape(), std::runtime_error);
+    EXPECT_THROW((void)t.stride(), std::runtime_error);
+    EXPECT_THROW((void)t.offset(), std::runtime_error);
+    EXPECT_THROW((void)t.dtype(), std::runtime_error);
+    EXPECT_THROW((void)t.device(), std::runtime_error);
+    EXPECT_THROW((void)t.storage(), std::runtime_error);
+    EXPECT_THROW((void)t.numel(), std::runtime_error);
+    EXPECT_THROW((void)t.is_contiguous(), std::runtime_error);
+    EXPECT_THROW((void)t.permute({0}), std::runtime_error);
+}

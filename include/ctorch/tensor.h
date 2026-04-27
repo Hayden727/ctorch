@@ -46,14 +46,49 @@ class Tensor {
 
     Tensor() = default;
 
-    const std::vector<std::int64_t>& shape() const { return impl_->shape; }
-    const std::vector<std::int64_t>& stride() const { return impl_->stride; }
-    std::int64_t offset() const { return impl_->offset; }
-    ::ctorch::dtype dtype() const { return impl_->dt; }
-    Device device() const { return impl_->storage.device(); }
+    const std::vector<std::int64_t>& shape() const {
+        if (!impl_) {
+            throw_undefined("shape");
+        }
+        return impl_->shape;
+    }
+    const std::vector<std::int64_t>& stride() const {
+        if (!impl_) {
+            throw_undefined("stride");
+        }
+        return impl_->stride;
+    }
+    std::int64_t offset() const {
+        if (!impl_) {
+            throw_undefined("offset");
+        }
+        return impl_->offset;
+    }
+    ::ctorch::dtype dtype() const {
+        if (!impl_) {
+            throw_undefined("dtype");
+        }
+        return impl_->dt;
+    }
+    Device device() const {
+        if (!impl_) {
+            throw_undefined("device");
+        }
+        return impl_->storage.device();
+    }
 
-    Storage& storage() { return impl_->storage; }
-    const Storage& storage() const { return impl_->storage; }
+    Storage& storage() {
+        if (!impl_) {
+            throw_undefined("storage");
+        }
+        return impl_->storage;
+    }
+    const Storage& storage() const {
+        if (!impl_) {
+            throw_undefined("storage");
+        }
+        return impl_->storage;
+    }
 
     /// Total element count. Empty shape (`{}`) is a 0-d scalar with numel 1.
     std::int64_t numel() const;
@@ -89,6 +124,11 @@ class Tensor {
     std::shared_ptr<detail::TensorImpl> impl_;
 
     explicit Tensor(std::shared_ptr<detail::TensorImpl> impl) : impl_(std::move(impl)) {}
+
+    /// Out-of-line cold path: keeps the inline accessors small and avoids
+    /// pulling <stdexcept> + <string> into every translation unit that
+    /// transitively includes this header.
+    [[noreturn]] static void throw_undefined(const char* fn);
 };
 
 } // namespace ctorch
