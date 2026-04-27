@@ -38,12 +38,24 @@ Tensor& sub_(Tensor& a, const Tensor& b);
 Tensor& mul_(Tensor& a, const Tensor& b);
 Tensor& div_(Tensor& a, const Tensor& b);
 
-// ---------- operator overloads (binary; unary `-` is added in commit 5) ----
+// ---------- unary ----------
+
+Tensor neg(const Tensor& x);
+Tensor abs(const Tensor& x);
+Tensor exp(const Tensor& x);
+Tensor log(const Tensor& x);
+Tensor sqrt(const Tensor& x);
+Tensor relu(const Tensor& x);
+Tensor sigmoid(const Tensor& x);
+Tensor tanh(const Tensor& x);
+
+// ---------- operator overloads ----------
 
 inline Tensor operator+(const Tensor& a, const Tensor& b) { return add(a, b); }
 inline Tensor operator-(const Tensor& a, const Tensor& b) { return sub(a, b); }
 inline Tensor operator*(const Tensor& a, const Tensor& b) { return mul(a, b); }
 inline Tensor operator/(const Tensor& a, const Tensor& b) { return div(a, b); }
+inline Tensor operator-(const Tensor& x) { return neg(x); }
 
 } // namespace ctorch
 

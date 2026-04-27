@@ -10,6 +10,7 @@ add_library(ctorch_core STATIC
   ops/tensor_iter.cpp
   ops/cast_cpu.cpp
   ops/binary_ops_cpu.cpp
+  ops/unary_ops_cpu.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )

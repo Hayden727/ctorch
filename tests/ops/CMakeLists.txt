@@ -19,3 +19,8 @@ ctorch_add_test(inplace_test
   SOURCES inplace_test.cpp
   LIBS    ctorch_core
 )
+
+ctorch_add_test(unary_test
+  SOURCES unary_test.cpp
+  LIBS    ctorch_core
+)
