@@ -80,13 +80,19 @@ __global__ void unary_kernel_strided(T* out_base, const T* in_base,
 template <class T, class Op>
 void launch_unary(const Tensor& in, Tensor& out, Op op) {
     if (ops::can_use_contiguous_path(in, out)) {
+        const std::int64_t n = out.numel();
+        if (n == 0) {
+            return; // empty tensor: nothing to launch (zero-block grids are invalid)
+        }
         const auto* ip = static_cast<const T*>(in.storage().data()) + in.offset();
         auto* op_out = static_cast<T*>(out.storage().data()) + out.offset();
-        const std::int64_t n = out.numel();
         const int blocks = blocks_for(n);
         unary_kernel_contig<T, Op><<<blocks, kBlockSize>>>(op_out, ip, n, op);
     } else {
         const auto ctx = ops::make_unary_indexer(in, out);
+        if (ctx.n == 0) {
+            return;
+        }
         const auto* in_base = static_cast<const T*>(in.storage().data());
         auto* out_base = static_cast<T*>(out.storage().data());
         const int blocks = blocks_for(ctx.n);

@@ -86,15 +86,21 @@ __global__ void binary_kernel_strided(T* out_base, const T* a_base, const T* b_b
 template <class T, class Op>
 void launch_binary(const Tensor& a, const Tensor& b, Tensor& out, Op op) {
     if (ops::can_use_contiguous_path(a, b, out)) {
+        const std::int64_t n = out.numel();
+        if (n == 0) {
+            return; // empty tensor: nothing to launch (zero-block grids are invalid)
+        }
         const auto* ap = static_cast<const T*>(a.storage().data()) + a.offset();
         const auto* bp = static_cast<const T*>(b.storage().data()) + b.offset();
         auto* op_out = static_cast<T*>(out.storage().data()) + out.offset();
-        const std::int64_t n = out.numel();
         const int blocks = blocks_for(n);
         binary_kernel_contig<T, Op><<<blocks, kBlockSize>>>(op_out, ap, bp, n, op);
     } else {
         const auto br = ops::broadcast_two(a, b);
         const auto ctx = ops::make_binary_indexer(a, b, out, br);
+        if (ctx.n == 0) {
+            return;
+        }
         const auto* a_base = static_cast<const T*>(a.storage().data());
         const auto* b_base = static_cast<const T*>(b.storage().data());
         auto* out_base = static_cast<T*>(out.storage().data());

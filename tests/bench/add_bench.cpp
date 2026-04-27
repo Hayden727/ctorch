@@ -20,8 +20,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "ctorch/device.h"
+#include "ctorch/dispatch.h"
 #include "ctorch/dtype.h"
 #include "ctorch/ops/elementwise.h"
+#include "ctorch/ops/op_keys.h"
 #include "ctorch/tensor.h"
 
 #include <gtest/gtest.h>
@@ -94,23 +96,27 @@ double time_reference_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
     return std::chrono::duration<double>(t1 - t0).count();
 }
 
-double time_dispatch_cuda(const Tensor& a, const Tensor& b) {
+// Bypass the public `add()` front-door so the dispatch path writes into a
+// preallocated `out` instead of allocating + zero-filling a fresh tensor on
+// every trial. That is what N2 (Issue 03 §2.2) actually wants to measure:
+// dispatcher + indexer + kernel overhead, not Storage allocation + cudaMemset.
+double time_dispatch_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
     cudaDeviceSynchronize();
     auto t0 = std::chrono::steady_clock::now();
-    auto c = add(a, b);
+    ctorch::dispatch::call<ctorch::op::AddOp>(Device::Kind::CUDA, a, b, out);
     cudaDeviceSynchronize();
     auto t1 = std::chrono::steady_clock::now();
-    (void)c;
     return std::chrono::duration<double>(t1 - t0).count();
 }
 
 #endif // CTORCH_HAS_CUDA
 
-double time_dispatch_cpu(const Tensor& a, const Tensor& b) {
+// Same shape as the CUDA case: dispatch into a preallocated output so the
+// timing reflects only the dispatcher + indexer + kernel.
+double time_dispatch_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
     auto t0 = std::chrono::steady_clock::now();
-    auto c = add(a, b);
+    ctorch::dispatch::call<ctorch::op::AddOp>(Device::Kind::CPU, a, b, out);
     auto t1 = std::chrono::steady_clock::now();
-    (void)c;
     return std::chrono::duration<double>(t1 - t0).count();
 }
 
@@ -133,17 +139,23 @@ double time_reference_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
 TEST(AddBench, CpuDispatchVsReference) {
     Tensor a({kN}, dtype::float32, Device::cpu());
     Tensor b({kN}, dtype::float32, Device::cpu());
-    Tensor ref({kN}, dtype::float32, Device::cpu());
+    Tensor out_disp({kN}, dtype::float32, Device::cpu());
+    Tensor out_ref({kN}, dtype::float32, Device::cpu());
+
+    // The registrar that wires `op::AddOp` into the dispatch table lives in
+    // the same TU as `ctorch::add()`; calling it here forces the static
+    // library linker to pull that TU in.
+    (void)add(a, b);
 
     // Warmup.
-    (void)add(a, b);
-    (void)time_reference_cpu(a, b, ref);
+    (void)time_dispatch_cpu(a, b, out_disp);
+    (void)time_reference_cpu(a, b, out_ref);
 
     std::vector<double> ts_disp(kTrials);
     std::vector<double> ts_ref(kTrials);
     for (int i = 0; i < kTrials; ++i) {
-        ts_disp[i] = time_dispatch_cpu(a, b);
-        ts_ref[i] = time_reference_cpu(a, b, ref);
+        ts_disp[i] = time_dispatch_cpu(a, b, out_disp);
+        ts_ref[i] = time_reference_cpu(a, b, out_ref);
     }
     const double t_disp = median(ts_disp);
     const double t_ref = median(ts_ref);
@@ -162,17 +174,21 @@ TEST(AddBench, CudaDispatchWithin10PercentOfReference) {
     auto b_cpu = Tensor({kN}, dtype::float32, Device::cpu());
     auto a = a_cpu.to(Device::cuda());
     auto b = b_cpu.to(Device::cuda());
-    Tensor out({kN}, dtype::float32, Device::cuda());
+    Tensor out_disp({kN}, dtype::float32, Device::cuda());
+    Tensor out_ref({kN}, dtype::float32, Device::cuda());
+
+    // Force the CUDA-side registrar TU to be linked (see CPU comment).
+    (void)add(a, b);
 
     // Warmup.
-    (void)add(a, b);
-    (void)time_reference_cuda(a, b, out);
+    (void)time_dispatch_cuda(a, b, out_disp);
+    (void)time_reference_cuda(a, b, out_ref);
 
     std::vector<double> ts_disp(kTrials);
     std::vector<double> ts_ref(kTrials);
     for (int i = 0; i < kTrials; ++i) {
-        ts_disp[i] = time_dispatch_cuda(a, b);
-        ts_ref[i] = time_reference_cuda(a, b, out);
+        ts_disp[i] = time_dispatch_cuda(a, b, out_disp);
+        ts_ref[i] = time_reference_cuda(a, b, out_ref);
     }
     const double t_disp = median(ts_disp);
     const double t_ref = median(ts_ref);
