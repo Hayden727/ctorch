@@ -6,6 +6,8 @@ add_library(ctorch_core STATIC
   storage.cpp
   tensor.cpp
   type_promotion.cpp
+  ops/broadcast.cpp
+  ops/tensor_iter.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )
