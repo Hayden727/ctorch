@@ -176,20 +176,23 @@ void div_inplace_cuda(Tensor& a, const Tensor& b) {
     binary_dispatch_numeric(a, b, a, ops::DivF{});
 }
 
-struct CUDABinaryRegistrar {
-    CUDABinaryRegistrar() {
-        dispatch::register_op<op::AddOp>(Device::Kind::CUDA, &add_cuda);
-        dispatch::register_op<op::SubOp>(Device::Kind::CUDA, &sub_cuda);
-        dispatch::register_op<op::MulOp>(Device::Kind::CUDA, &mul_cuda);
-        dispatch::register_op<op::DivOp>(Device::Kind::CUDA, &div_cuda);
-        dispatch::register_op<op::AddInplaceOp>(Device::Kind::CUDA, &add_inplace_cuda);
-        dispatch::register_op<op::SubInplaceOp>(Device::Kind::CUDA, &sub_inplace_cuda);
-        dispatch::register_op<op::MulInplaceOp>(Device::Kind::CUDA, &mul_inplace_cuda);
-        dispatch::register_op<op::DivInplaceOp>(Device::Kind::CUDA, &div_inplace_cuda);
-    }
-};
-const CUDABinaryRegistrar kCudaBinaryRegistrar{};
-
 } // namespace
+
+// Named, externally-visible entry point that the CPU registrar calls. A
+// pure static-init registrar inside an anonymous namespace gets stripped
+// when ctorch_core is linked as a static archive (no ELF symbol forces the
+// linker to pull this TU in). Exposing this function and calling it from
+// the CPU TU guarantees nvcc-built kernels actually end up in the final
+// binary.
+extern "C" void ctorch_register_cuda_binary_ops() {
+    dispatch::register_op<op::AddOp>(Device::Kind::CUDA, &add_cuda);
+    dispatch::register_op<op::SubOp>(Device::Kind::CUDA, &sub_cuda);
+    dispatch::register_op<op::MulOp>(Device::Kind::CUDA, &mul_cuda);
+    dispatch::register_op<op::DivOp>(Device::Kind::CUDA, &div_cuda);
+    dispatch::register_op<op::AddInplaceOp>(Device::Kind::CUDA, &add_inplace_cuda);
+    dispatch::register_op<op::SubInplaceOp>(Device::Kind::CUDA, &sub_inplace_cuda);
+    dispatch::register_op<op::MulInplaceOp>(Device::Kind::CUDA, &mul_inplace_cuda);
+    dispatch::register_op<op::DivInplaceOp>(Device::Kind::CUDA, &div_inplace_cuda);
+}
 
 } // namespace ctorch

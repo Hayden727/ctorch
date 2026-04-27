@@ -128,6 +128,14 @@ void tanh_cpu(const Tensor& in, Tensor& out) {
     unary_dispatch_float(in, out, ops::TanhF{}, "tanh");
 }
 
+} // namespace
+
+#if defined(CTORCH_HAS_CUDA)
+extern "C" void ctorch_register_cuda_unary_ops();
+#endif
+
+namespace {
+
 struct CPUUnaryRegistrar {
     CPUUnaryRegistrar() {
         dispatch::register_op<op::NegOp>(Device::Kind::CPU, &neg_cpu);
@@ -138,6 +146,9 @@ struct CPUUnaryRegistrar {
         dispatch::register_op<op::SqrtOp>(Device::Kind::CPU, &sqrt_cpu);
         dispatch::register_op<op::SigmoidOp>(Device::Kind::CPU, &sigmoid_cpu);
         dispatch::register_op<op::TanhOp>(Device::Kind::CPU, &tanh_cpu);
+#if defined(CTORCH_HAS_CUDA)
+        ctorch_register_cuda_unary_ops();
+#endif
     }
 };
 const CPUUnaryRegistrar kCpuUnaryRegistrar{};

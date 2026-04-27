@@ -177,20 +177,21 @@ void tanh_cuda(const Tensor& in, Tensor& out) {
     unary_dispatch_float(in, out, ops::TanhF{}, "tanh");
 }
 
-struct CUDAUnaryRegistrar {
-    CUDAUnaryRegistrar() {
-        dispatch::register_op<op::NegOp>(Device::Kind::CUDA, &neg_cuda);
-        dispatch::register_op<op::AbsOp>(Device::Kind::CUDA, &abs_cuda);
-        dispatch::register_op<op::ReluOp>(Device::Kind::CUDA, &relu_cuda);
-        dispatch::register_op<op::ExpOp>(Device::Kind::CUDA, &exp_cuda);
-        dispatch::register_op<op::LogOp>(Device::Kind::CUDA, &log_cuda);
-        dispatch::register_op<op::SqrtOp>(Device::Kind::CUDA, &sqrt_cuda);
-        dispatch::register_op<op::SigmoidOp>(Device::Kind::CUDA, &sigmoid_cuda);
-        dispatch::register_op<op::TanhOp>(Device::Kind::CUDA, &tanh_cuda);
-    }
-};
-const CUDAUnaryRegistrar kCudaUnaryRegistrar{};
-
 } // namespace
+
+// Same trick as src/ops/binary_ops_cuda.cu: anonymous-namespace static
+// initialisers get stripped from a static archive unless something pulls
+// the TU in. The CPU unary registrar references this symbol, which forces
+// the linker to keep our nvcc-built kernels.
+extern "C" void ctorch_register_cuda_unary_ops() {
+    dispatch::register_op<op::NegOp>(Device::Kind::CUDA, &neg_cuda);
+    dispatch::register_op<op::AbsOp>(Device::Kind::CUDA, &abs_cuda);
+    dispatch::register_op<op::ReluOp>(Device::Kind::CUDA, &relu_cuda);
+    dispatch::register_op<op::ExpOp>(Device::Kind::CUDA, &exp_cuda);
+    dispatch::register_op<op::LogOp>(Device::Kind::CUDA, &log_cuda);
+    dispatch::register_op<op::SqrtOp>(Device::Kind::CUDA, &sqrt_cuda);
+    dispatch::register_op<op::SigmoidOp>(Device::Kind::CUDA, &sigmoid_cuda);
+    dispatch::register_op<op::TanhOp>(Device::Kind::CUDA, &tanh_cuda);
+}
 
 } // namespace ctorch

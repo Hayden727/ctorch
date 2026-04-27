@@ -124,6 +124,17 @@ void div_inplace_cpu(Tensor& a, const Tensor& b) {
     binary_dispatch_numeric(a, b, a, ops::DivF{});
 }
 
+} // namespace
+
+#if defined(CTORCH_HAS_CUDA)
+// Implemented in src/ops/binary_ops_cuda.cu. Referencing this symbol from
+// here forces the linker to pull the .cu TU into the final binary, which
+// in turn brings the CUDA-side dispatch registrations along.
+extern "C" void ctorch_register_cuda_binary_ops();
+#endif
+
+namespace {
+
 struct CPUBinaryRegistrar {
     CPUBinaryRegistrar() {
         dispatch::register_op<op::AddOp>(Device::Kind::CPU, &add_cpu);
@@ -134,6 +145,9 @@ struct CPUBinaryRegistrar {
         dispatch::register_op<op::SubInplaceOp>(Device::Kind::CPU, &sub_inplace_cpu);
         dispatch::register_op<op::MulInplaceOp>(Device::Kind::CPU, &mul_inplace_cpu);
         dispatch::register_op<op::DivInplaceOp>(Device::Kind::CPU, &div_inplace_cpu);
+#if defined(CTORCH_HAS_CUDA)
+        ctorch_register_cuda_binary_ops();
+#endif
     }
 };
 const CPUBinaryRegistrar kCpuBinaryRegistrar{};
