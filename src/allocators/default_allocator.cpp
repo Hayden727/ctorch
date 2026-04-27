@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 #endif
 
@@ -33,21 +34,48 @@ namespace ctorch {
 #if defined(CTORCH_HAS_CUDA)
 namespace {
 
-/// Returns the caching allocator that owns CUDA device \p index. Allocators
-/// are constructed on demand and never destroyed; the table itself is a
-/// function-local static so it stays alive until program termination.
+/// Number of CUDA devices visible to this process, queried once. Returns 0
+/// if there is no driver or no devices — that case makes every CUDA index
+/// invalid and the lookup throws below.
+int cuda_visible_device_count() {
+    static const int kCount = []() {
+        int n = 0;
+        if (cudaGetDeviceCount(&n) != cudaSuccess) {
+            return 0;
+        }
+        return n;
+    }();
+    return kCount;
+}
+
+/// Returns the caching allocator that owns CUDA device \p index.
+/// Constructs lazily; the slot vector is sized once at first call so a
+/// pathologically large `index` cannot grow the table without bound.
 detail::CudaCachingAllocator* cuda_allocator_for(int index) {
     if (index < 0) {
         throw std::invalid_argument("ctorch::default_allocator: negative CUDA device index");
     }
-    static std::mutex mu;
-    static std::vector<std::unique_ptr<detail::CudaCachingAllocator>> table;
-    std::lock_guard<std::mutex> lock(mu);
-    while (static_cast<int>(table.size()) <= index) {
-        int next = static_cast<int>(table.size());
-        table.emplace_back(std::make_unique<detail::CudaCachingAllocator>(next));
+    const int device_count = cuda_visible_device_count();
+    if (device_count == 0) {
+        throw std::runtime_error(
+            "ctorch::default_allocator: no CUDA devices visible (driver missing or "
+            "cudaGetDeviceCount failed)");
     }
-    return table[static_cast<std::size_t>(index)].get();
+    if (index >= device_count) {
+        throw std::out_of_range(
+            "ctorch::default_allocator: CUDA device index " + std::to_string(index) +
+            " out of range (cudaGetDeviceCount() = " + std::to_string(device_count) + ")");
+    }
+
+    static std::mutex mu;
+    static std::vector<std::unique_ptr<detail::CudaCachingAllocator>> table(
+        static_cast<std::size_t>(device_count));
+    std::lock_guard<std::mutex> lock(mu);
+    auto& slot = table[static_cast<std::size_t>(index)];
+    if (!slot) {
+        slot = std::make_unique<detail::CudaCachingAllocator>(index);
+    }
+    return slot.get();
 }
 
 } // namespace

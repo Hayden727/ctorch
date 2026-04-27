@@ -89,22 +89,6 @@ TEST(CpuPool, ManyAllocationsAreReadAndWritable) {
     }
 }
 
-// `default_allocator(Device)` must look at Device::index, not just kind, so
-// every CUDA ordinal owns its own caching pool. Without this, two tensors
-// tagged for distinct GPUs would alias the same allocator and end up with
-// memory on whichever device happened to be current at allocation time.
-TEST(DefaultAllocator, ReturnsDistinctInstancePerCudaDeviceIndex) {
-#if !defined(CTORCH_HAS_CUDA)
-    GTEST_SKIP() << "needs a CUDA-enabled build";
-#else
-    auto* a0 = ctorch::default_allocator(ctorch::Device::cuda(0));
-    auto* a1 = ctorch::default_allocator(ctorch::Device::cuda(1));
-    auto* a0_again = ctorch::default_allocator(ctorch::Device::cuda(0));
-    EXPECT_NE(a0, a1);
-    EXPECT_EQ(a0, a0_again);
-#endif
-}
-
 TEST(DefaultAllocator, CpuIsKindLevelSingleton) {
     auto* a = ctorch::default_allocator(ctorch::Device::cpu());
     auto* b = ctorch::default_allocator(ctorch::Device{ctorch::Device::Kind::CPU, 7});

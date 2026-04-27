@@ -33,15 +33,46 @@ int size_class_index(std::size_t pow2_bytes) noexcept {
     return static_cast<int>(std::bit_width(pow2_bytes)) - 1;
 }
 
-// Bind subsequent CUDA runtime calls on this thread to the allocator's
-// device. Required before every `cudaMalloc`/`cudaFree` so a multi-GPU
-// caller doesn't accidentally allocate on the current thread's device.
-void set_device_or_throw(int device_index) {
-    cudaError_t err = cudaSetDevice(device_index);
-    if (err != cudaSuccess) {
-        throw std::runtime_error("ctorch::CudaCachingAllocator: cudaSetDevice failed");
+// RAII guard that pins this thread to a target CUDA device for the
+// duration of its scope and restores the prior device on exit. Required
+// before every `cudaMalloc` so a multi-GPU caller doesn't accidentally
+// allocate on the current thread's device, and the caller's own device
+// selection is preserved across allocator calls.
+class CudaDeviceGuard {
+  public:
+    explicit CudaDeviceGuard(int target) {
+        cudaError_t err = cudaGetDevice(&prev_);
+        if (err != cudaSuccess) {
+            throw std::runtime_error("ctorch::CudaCachingAllocator: cudaGetDevice failed");
+        }
+        if (prev_ != target) {
+            err = cudaSetDevice(target);
+            if (err != cudaSuccess) {
+                throw std::runtime_error("ctorch::CudaCachingAllocator: cudaSetDevice failed");
+            }
+            changed_ = true;
+        }
     }
-}
+
+    ~CudaDeviceGuard() {
+        if (changed_) {
+            // Best-effort restore. Swallowing here is the standard idiom
+            // because a throwing destructor would terminate. In practice
+            // this only fails if the original device became invalid, in
+            // which case the caller has bigger problems.
+            (void)cudaSetDevice(prev_);
+        }
+    }
+
+    CudaDeviceGuard(const CudaDeviceGuard&) = delete;
+    CudaDeviceGuard& operator=(const CudaDeviceGuard&) = delete;
+    CudaDeviceGuard(CudaDeviceGuard&&) = delete;
+    CudaDeviceGuard& operator=(CudaDeviceGuard&&) = delete;
+
+  private:
+    int prev_ = 0;
+    bool changed_ = false;
+};
 
 } // namespace
 
@@ -73,7 +104,7 @@ void* CudaCachingAllocator::allocate_on_stream(std::size_t bytes, cudaStream_t s
         }
     }
 
-    set_device_or_throw(device_index_);
+    CudaDeviceGuard guard(device_index_); // restores caller's device on scope exit
     void* p = nullptr;
     cudaError_t err = cudaMalloc(&p, pow2);
     if (err != cudaSuccess || p == nullptr) {
@@ -97,8 +128,11 @@ void CudaCachingAllocator::deallocate_on_stream(void* p, std::size_t bytes, cuda
 
 void CudaCachingAllocator::empty_cache() {
     std::lock_guard<std::mutex> lock(mu_);
-    // Best-effort device pin. Failures here are swallowed because this
-    // function is also called from the destructor; a throw would terminate.
+    // Best-effort save/restore around cudaFree. We can't use CudaDeviceGuard
+    // here because this function is also reachable from the destructor and
+    // any throw from the guard would terminate. Failures are swallowed.
+    int prev = 0;
+    (void)cudaGetDevice(&prev);
     (void)cudaSetDevice(device_index_);
     for (auto& [key, blocks] : pool_) {
         for (void* p : blocks) {
@@ -107,6 +141,7 @@ void CudaCachingAllocator::empty_cache() {
         blocks.clear();
     }
     pool_.clear();
+    (void)cudaSetDevice(prev);
 }
 
 std::int64_t CudaCachingAllocator::cuda_malloc_count() {
