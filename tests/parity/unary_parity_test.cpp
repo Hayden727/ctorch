@@ -48,8 +48,12 @@ template <class T>
 void expect_close(const Tensor& got, const Tensor& ref, double tol) {
     ASSERT_EQ(got.shape(), ref.shape());
     ASSERT_EQ(got.dtype(), ref.dtype());
-    const auto* g = data_of<T>(got.contiguous());
-    const auto* r = data_of<T>(ref.contiguous());
+    // Bind the contiguous results to named tensors so their Storage stays
+    // alive for the body of the loop.
+    const Tensor got_c = got.contiguous();
+    const Tensor ref_c = ref.contiguous();
+    const auto* g = data_of<T>(got_c);
+    const auto* r = data_of<T>(ref_c);
     const std::int64_t n = ref.numel();
     for (std::int64_t i = 0; i < n; ++i) {
         const double diff = std::abs(static_cast<double>(g[i]) - static_cast<double>(r[i]));
@@ -60,8 +64,10 @@ void expect_close(const Tensor& got, const Tensor& ref, double tol) {
 
 template <class T> void expect_exact(const Tensor& got, const Tensor& ref) {
     ASSERT_EQ(got.shape(), ref.shape());
-    const auto* g = data_of<T>(got.contiguous());
-    const auto* r = data_of<T>(ref.contiguous());
+    const Tensor got_c = got.contiguous();
+    const Tensor ref_c = ref.contiguous();
+    const auto* g = data_of<T>(got_c);
+    const auto* r = data_of<T>(ref_c);
     const std::int64_t n = ref.numel();
     for (std::int64_t i = 0; i < n; ++i) {
         EXPECT_EQ(g[i], r[i]) << "i=" << i;

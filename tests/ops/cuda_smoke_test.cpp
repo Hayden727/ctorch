@@ -101,6 +101,23 @@ TEST(CudaSmoke, ReluClampsNegatives) {
               (std::vector<float>{0.0f, 0.0f, 0.5f, 2.0f}));
 }
 
+TEST(CudaSmoke, AddPromotesIntPlusFloatOnGpu) {
+    if (!cuda_available()) {
+        GTEST_SKIP() << "no CUDA device";
+    }
+    // int32 + float32 must promote to float32 even on CUDA. The current
+    // implementation round-trips the int input through the CPU caster.
+    Tensor i({2}, dtype::int32, Device::cpu());
+    auto* ip = static_cast<std::int32_t*>(i.storage().data());
+    ip[0] = 1;
+    ip[1] = 2;
+    auto f = cpu_filled({2}, dtype::float32, {0.5f, 0.25f});
+    auto c_gpu = add(i.to(Device::cuda()), f.to(Device::cuda()));
+    EXPECT_EQ(c_gpu.dtype(), dtype::float32);
+    EXPECT_EQ(read_all_cpu(c_gpu.to(Device::cpu())),
+              (std::vector<float>{1.5f, 2.25f}));
+}
+
 #else
 
 TEST(CudaSmoke, BuildWithoutCudaSkips) {

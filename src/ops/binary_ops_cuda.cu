@@ -21,6 +21,7 @@
 #include "ctorch/ops/op_keys.h"
 #include "ctorch/tensor.h"
 
+#include "cuda/device_guard.h"
 #include "ops/broadcast.h"
 #include "ops/functors.h"
 #include "ops/tensor_iter.h"
@@ -85,6 +86,10 @@ __global__ void binary_kernel_strided(T* out_base, const T* a_base, const T* b_b
 
 template <class T, class Op>
 void launch_binary(const Tensor& a, const Tensor& b, Tensor& out, Op op) {
+    // Pin the calling thread to the tensors' CUDA device so launches and
+    // memory accesses go to the right context on multi-GPU hosts. The
+    // front-door has already verified all three tensors share a device.
+    cuda::DeviceGuard device_guard(out.device().index);
     if (ops::can_use_contiguous_path(a, b, out)) {
         const std::int64_t n = out.numel();
         if (n == 0) {

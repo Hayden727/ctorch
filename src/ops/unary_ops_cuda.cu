@@ -18,6 +18,7 @@
 #include "ctorch/ops/op_keys.h"
 #include "ctorch/tensor.h"
 
+#include "cuda/device_guard.h"
 #include "ops/functors.h"
 #include "ops/tensor_iter.h"
 
@@ -79,6 +80,9 @@ __global__ void unary_kernel_strided(T* out_base, const T* in_base,
 
 template <class T, class Op>
 void launch_unary(const Tensor& in, Tensor& out, Op op) {
+    // Pin the calling thread to the tensor's CUDA device so launches and
+    // memory accesses go to the right context on multi-GPU hosts.
+    cuda::DeviceGuard device_guard(out.device().index);
     if (ops::can_use_contiguous_path(in, out)) {
         const std::int64_t n = out.numel();
         if (n == 0) {

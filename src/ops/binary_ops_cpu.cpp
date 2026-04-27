@@ -134,9 +134,13 @@ Tensor maybe_cast(const Tensor& t, dtype target) {
     if (t.device().is_cpu()) {
         return ops::cast_cpu(t, target);
     }
-    // CUDA cast not implemented yet; require explicit cast on CUDA inputs.
-    throw DTypeError("ctorch: implicit dtype promotion on CUDA is not yet "
-                     "supported — explicitly cast operands");
+    // CUDA path: round-trip through the CPU caster. Slow compared to a
+    // dedicated CUDA cast kernel but keeps semantics correct so the front
+    // door behaves identically on both backends. A bespoke
+    // ops::cast_cuda implementation is a follow-up optimisation.
+    auto cpu = t.to(Device::cpu());
+    auto cast = ops::cast_cpu(cpu, target);
+    return cast.to(t.device());
 }
 
 bool same_view(const Tensor& a, const Tensor& b) {
