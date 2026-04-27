@@ -43,7 +43,20 @@ jobs:
 
       - name: clang-tidy check
         run: |
-          clang-tidy-16 -p build $(git ls-files '*.cpp')
+          # Only lint .cpp files that the current build is actually compiling.
+          # Sources gated by CTORCH_CUDA (e.g. src/cuda/, src/allocators/cuda_caching*.cpp)
+          # are absent from compile_commands.json when CUDA is OFF, so this filter
+          # avoids "cuda_runtime.h not found" errors for files no one is building.
+          tidy_files=$(jq -r '.[].file' build/compile_commands.json \
+            | sed "s|^$PWD/||" \
+            | grep -F -x -f <(git ls-files '*.cpp') \
+            | sort -u)
+          if [ -z "$tidy_files" ]; then
+            echo "No .cpp files in compile_commands.json; nothing to lint." >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          clang-tidy-16 -p build $tidy_files
 
   build-test:
     runs-on: ${{ matrix.os }}

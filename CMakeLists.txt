@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/ctorch_options.cmake)
 include(cmake/ctorch_warnings.cmake)
+include(cmake/ctorch_sanitizers.cmake)
 
 if(CTORCH_CUDA)
   enable_language(CUDA)
