@@ -19,6 +19,8 @@
 #include <stdexcept>
 
 #if defined(CTORCH_HAS_CUDA)
+#include "cuda/device_guard.h"
+
 #include <cuda_runtime.h>
 #endif
 
@@ -37,6 +39,13 @@ void zero_fill(void* data, std::size_t nbytes, Device device) {
         return;
     }
 #if defined(CTORCH_HAS_CUDA)
+    // The caching allocator restores the caller's current device after
+    // cudaMalloc, so by the time we get here the runtime is no longer
+    // pinned to `device.index`. cudaMemset uses the current device's
+    // context to interpret the pointer; without this guard a non-current
+    // CUDA storage would zero-fill against the wrong context and either
+    // fail or quietly skip the init.
+    cuda::DeviceGuard guard(device.index);
     cudaError_t err = cudaMemset(data, 0, nbytes);
     if (err != cudaSuccess) {
         throw std::runtime_error("ctorch::Storage: cudaMemset failed");
