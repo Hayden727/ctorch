@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-16 clang-format-16 clang-tidy-16 cmake ninja-build
+
+      - name: clang-format check
+        run: |
+          clang-format-16 --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+
+      - name: Configure for clang-tidy
+        run: |
+          cmake -S . -B build \
+            -DCTORCH_CUDA=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++-16 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCTORCH_WERROR=ON
+
+      - name: clang-tidy check
+        run: |
+          clang-tidy-16 -p build $(git ls-files '*.cpp')
+
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, cc: gcc-12,   cxx: g++-12     }
+          - { os: ubuntu-24.04, cc: clang-16, cxx: clang++-16 }
+          - { os: macos-14,     cc: clang,    cxx: clang++    }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: gtest-v1.14.0-${{ runner.os }}-${{ matrix.cxx }}
+
+      - name: Install compiler + tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.cc }} ninja-build cmake
+
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja cmake
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCTORCH_CUDA=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCTORCH_WERROR=ON
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

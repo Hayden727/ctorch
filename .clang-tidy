@@ -1,0 +1,9 @@
+Checks: >
+  bugprone-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -readability-magic-numbers,
+  -modernize-use-trailing-return-type
+WarningsAsErrors: ""
+HeaderFilterRegex: "include/ctorch/.*"
