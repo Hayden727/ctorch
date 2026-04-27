@@ -18,7 +18,6 @@
 
 #include <array>
 #include <bit>
-#include <cerrno>
 #include <cstdlib>
 #include <new>
 #include <vector>
@@ -30,30 +29,6 @@
 namespace ctorch::detail {
 
 namespace {
-
-using FreeList = std::vector<void*>;
-using FreeLists = std::array<FreeList, kCpuPoolNumSizeClasses>;
-
-// Per-thread free lists. Holding a separate cache per thread gives lock-free
-// allocate/deallocate at the cost of cross-thread reuse, which is acceptable
-// for tensor workloads where each thread typically owns its own tensors.
-thread_local FreeLists g_free_lists{};
-
-// Track every block this thread has handed back to the system so destroying
-// the thread (or calling empty_cache) can release them.
-thread_local bool g_drain_registered = false;
-
-std::size_t round_up_pow2(std::size_t n) noexcept {
-    if (n <= 1) {
-        return 1;
-    }
-    return std::size_t{1} << std::bit_width(n - 1);
-}
-
-int size_class_index(std::size_t pow2_bytes) noexcept {
-    // bit_width(1) == 1, bit_width(2) == 2, ... index = bit_width - 1.
-    return static_cast<int>(std::bit_width(pow2_bytes)) - 1;
-}
 
 void* aligned_alloc_bytes(std::size_t bytes) {
 #if defined(_WIN32)
@@ -80,37 +55,43 @@ void aligned_free_bytes(void* p) noexcept {
 #endif
 }
 
-void drain_free_lists(FreeLists& lists) noexcept {
-    for (auto& fl : lists) {
-        for (void* p : fl) {
-            aligned_free_bytes(p);
-        }
-        fl.clear();
+std::size_t round_up_pow2(std::size_t n) noexcept {
+    if (n <= 1) {
+        return 1;
     }
+    return std::size_t{1} << std::bit_width(n - 1);
 }
 
-// Per-thread sentinel that drains the thread's free lists when the thread
-// exits. Constructed lazily on first allocate call.
-struct ThreadDrainGuard {
-    ~ThreadDrainGuard() { drain_free_lists(g_free_lists); }
+int size_class_index(std::size_t pow2_bytes) noexcept {
+    // bit_width(1) == 1, bit_width(2) == 2, ... index = bit_width - 1.
+    return static_cast<int>(std::bit_width(pow2_bytes)) - 1;
+}
+
+// Owning per-thread cache. Drains its blocks back to the system allocator
+// inside the destructor body, *before* the std::array members are destroyed,
+// so we never observe a destruction-order race against the array. (Earlier
+// versions kept the array as a free-standing thread_local with a separate
+// `ThreadDrainGuard` thread_local; on glibc that variant raced because the
+// guard was constructed first and therefore destroyed last, reading already-
+// destroyed std::vector storage.)
+struct ThreadCache {
+    std::array<std::vector<void*>, kCpuPoolNumSizeClasses> free_lists{};
+
+    ~ThreadCache() {
+        for (auto& fl : free_lists) {
+            for (void* p : fl) {
+                aligned_free_bytes(p);
+            }
+            fl.clear();
+        }
+    }
 };
 
-void ensure_drain_registered() {
-    if (!g_drain_registered) {
-        thread_local ThreadDrainGuard guard;
-        (void)guard;
-        g_drain_registered = true;
-    }
-}
+thread_local ThreadCache g_cache;
 
 } // namespace
 
-CpuPoolAllocator::~CpuPoolAllocator() {
-    // Drain the *calling* thread's lists. Other threads' lists drain on their
-    // own ThreadDrainGuard destruction. In practice CpuPoolAllocator is a
-    // process-wide singleton so this destructor only runs at shutdown.
-    drain_free_lists(g_free_lists);
-}
+CpuPoolAllocator::~CpuPoolAllocator() = default;
 
 void* CpuPoolAllocator::allocate(std::size_t bytes) {
     if (bytes == 0) {
@@ -118,21 +99,19 @@ void* CpuPoolAllocator::allocate(std::size_t bytes) {
     }
 
     if (bytes > kCachePoolMaxBytes) {
-        // Bypass: allocate the requested rounded-up-to-alignment size and
-        // never cache. posix_memalign requires the size to be a multiple of
-        // sizeof(void*); rounding up to the alignment satisfies that.
+        // Bypass: allocate the requested size rounded up to alignment and
+        // never cache. posix_memalign accepts arbitrary sizes when alignment
+        // is a multiple of sizeof(void*) and a power of two; we conform.
         std::size_t padded = (bytes + kCpuAlignment - 1) & ~(kCpuAlignment - 1);
         return aligned_alloc_bytes(padded);
     }
-
-    ensure_drain_registered();
 
     std::size_t pow2 = round_up_pow2(bytes);
     if (pow2 < kCpuAlignment) {
         pow2 = kCpuAlignment;
     }
     int idx = size_class_index(pow2);
-    auto& fl = g_free_lists.at(static_cast<std::size_t>(idx));
+    auto& fl = g_cache.free_lists.at(static_cast<std::size_t>(idx));
     if (!fl.empty()) {
         void* p = fl.back();
         fl.pop_back();
@@ -155,9 +134,16 @@ void CpuPoolAllocator::deallocate(void* p, std::size_t bytes) {
         pow2 = kCpuAlignment;
     }
     int idx = size_class_index(pow2);
-    g_free_lists.at(static_cast<std::size_t>(idx)).push_back(p);
+    g_cache.free_lists.at(static_cast<std::size_t>(idx)).push_back(p);
 }
 
-void CpuPoolAllocator::empty_cache() { drain_free_lists(g_free_lists); }
+void CpuPoolAllocator::empty_cache() {
+    for (auto& fl : g_cache.free_lists) {
+        for (void* p : fl) {
+            aligned_free_bytes(p);
+        }
+        fl.clear();
+    }
+}
 
 } // namespace ctorch::detail
