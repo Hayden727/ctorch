@@ -9,3 +9,13 @@ ctorch_add_test(broadcast_test
 )
 # broadcast_test reaches into private headers under src/ops/.
 target_include_directories(broadcast_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
+ctorch_add_test(binary_test
+  SOURCES binary_test.cpp
+  LIBS    ctorch_core
+)
+
+ctorch_add_test(inplace_test
+  SOURCES inplace_test.cpp
+  LIBS    ctorch_core
+)

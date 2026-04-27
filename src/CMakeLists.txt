@@ -8,6 +8,8 @@ add_library(ctorch_core STATIC
   type_promotion.cpp
   ops/broadcast.cpp
   ops/tensor_iter.cpp
+  ops/cast_cpu.cpp
+  ops/binary_ops_cpu.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )
