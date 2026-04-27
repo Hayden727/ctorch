@@ -1,0 +1,185 @@
+//===- tests/bench/add_bench.cpp - Microbenchmark: add ---------*- C++ -*-===//
+//
+// Part of the ctorch Project, under the MIT License.
+// See LICENSE for license information.
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// Microbenchmark for the element-wise `add` op. On CPU it just times the
+/// dispatched call vs a hand-rolled tight loop. On CUDA (when CTORCH_HAS_CUDA
+/// is defined and a GPU is present) it adds a hand-written reference kernel
+/// and asserts the dispatched call lands within 1.10× of it on a 1<<20 fp32
+/// tensor — the N2 acceptance criterion from Issue 03 §2.2.
+///
+/// Output is one CSV line per (op, backend, n) tuple to stdout. Designed to
+/// be runnable as a normal test (gtest_discover_tests picks it up) or
+/// invoked manually for ad-hoc profiling.
+///
+//===----------------------------------------------------------------------===//
+
+#include "ctorch/device.h"
+#include "ctorch/dtype.h"
+#include "ctorch/ops/elementwise.h"
+#include "ctorch/tensor.h"
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <vector>
+
+#if defined(CTORCH_HAS_CUDA)
+#include <cuda_runtime.h>
+#endif
+
+using ctorch::add;
+using ctorch::Device;
+using ctorch::dtype;
+using ctorch::Tensor;
+
+namespace {
+
+constexpr std::int64_t kN = 1 << 20; // 1M elements
+constexpr int kTrials = 25;
+
+double median(std::vector<double>& xs) {
+    std::sort(xs.begin(), xs.end());
+    return xs[xs.size() / 2];
+}
+
+void emit_csv(const char* op, const char* backend, std::int64_t n, double seconds) {
+    const double bytes = 3.0 * n * static_cast<double>(sizeof(float));
+    const double gbps = (bytes / seconds) * 1e-9;
+    std::cout << "csv," << op << "," << backend << "," << n << ","
+              << seconds << "," << gbps << "\n";
+}
+
+#if defined(CTORCH_HAS_CUDA)
+
+bool cuda_available() {
+    int count = 0;
+    if (cudaGetDeviceCount(&count) != cudaSuccess) {
+        return false;
+    }
+    return count > 0;
+}
+
+__global__ void reference_add_kernel(float* __restrict__ out,
+                                     const float* __restrict__ a,
+                                     const float* __restrict__ b,
+                                     std::int64_t n) {
+    const std::int64_t i =
+        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i < n) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+double time_reference_cuda(const Tensor& a, const Tensor& b, Tensor& out) {
+    const auto* ap = static_cast<const float*>(a.storage().data()) + a.offset();
+    const auto* bp = static_cast<const float*>(b.storage().data()) + b.offset();
+    auto* op_out = static_cast<float*>(out.storage().data()) + out.offset();
+    const std::int64_t n = a.numel();
+    constexpr int kBlock = 256;
+    const int blocks = static_cast<int>((n + kBlock - 1) / kBlock);
+    cudaDeviceSynchronize();
+    auto t0 = std::chrono::steady_clock::now();
+    reference_add_kernel<<<blocks, kBlock>>>(op_out, ap, bp, n);
+    cudaDeviceSynchronize();
+    auto t1 = std::chrono::steady_clock::now();
+    return std::chrono::duration<double>(t1 - t0).count();
+}
+
+double time_dispatch_cuda(const Tensor& a, const Tensor& b) {
+    cudaDeviceSynchronize();
+    auto t0 = std::chrono::steady_clock::now();
+    auto c = add(a, b);
+    cudaDeviceSynchronize();
+    auto t1 = std::chrono::steady_clock::now();
+    (void)c;
+    return std::chrono::duration<double>(t1 - t0).count();
+}
+
+#endif // CTORCH_HAS_CUDA
+
+double time_dispatch_cpu(const Tensor& a, const Tensor& b) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto c = add(a, b);
+    auto t1 = std::chrono::steady_clock::now();
+    (void)c;
+    return std::chrono::duration<double>(t1 - t0).count();
+}
+
+double time_reference_cpu(const Tensor& a, const Tensor& b, Tensor& out) {
+    const auto* ap = static_cast<const float*>(a.storage().data()) + a.offset();
+    const auto* bp = static_cast<const float*>(b.storage().data()) + b.offset();
+    auto* op_out = static_cast<float*>(out.storage().data()) + out.offset();
+    const std::int64_t n = a.numel();
+    auto t0 = std::chrono::steady_clock::now();
+    #pragma omp simd
+    for (std::int64_t i = 0; i < n; ++i) {
+        op_out[i] = ap[i] + bp[i];
+    }
+    auto t1 = std::chrono::steady_clock::now();
+    return std::chrono::duration<double>(t1 - t0).count();
+}
+
+} // namespace
+
+TEST(AddBench, CpuDispatchVsReference) {
+    Tensor a({kN}, dtype::float32, Device::cpu());
+    Tensor b({kN}, dtype::float32, Device::cpu());
+    Tensor ref({kN}, dtype::float32, Device::cpu());
+
+    // Warmup.
+    (void)add(a, b);
+    (void)time_reference_cpu(a, b, ref);
+
+    std::vector<double> ts_disp(kTrials);
+    std::vector<double> ts_ref(kTrials);
+    for (int i = 0; i < kTrials; ++i) {
+        ts_disp[i] = time_dispatch_cpu(a, b);
+        ts_ref[i] = time_reference_cpu(a, b, ref);
+    }
+    const double t_disp = median(ts_disp);
+    const double t_ref = median(ts_ref);
+    emit_csv("add", "cpu_dispatch", kN, t_disp);
+    emit_csv("add", "cpu_reference", kN, t_ref);
+    SUCCEED() << "dispatch median=" << t_disp << "s ref median=" << t_ref << "s";
+}
+
+#if defined(CTORCH_HAS_CUDA)
+
+TEST(AddBench, CudaDispatchWithin10PercentOfReference) {
+    if (!cuda_available()) {
+        GTEST_SKIP() << "no CUDA device";
+    }
+    auto a_cpu = Tensor({kN}, dtype::float32, Device::cpu());
+    auto b_cpu = Tensor({kN}, dtype::float32, Device::cpu());
+    auto a = a_cpu.to(Device::cuda());
+    auto b = b_cpu.to(Device::cuda());
+    Tensor out({kN}, dtype::float32, Device::cuda());
+
+    // Warmup.
+    (void)add(a, b);
+    (void)time_reference_cuda(a, b, out);
+
+    std::vector<double> ts_disp(kTrials);
+    std::vector<double> ts_ref(kTrials);
+    for (int i = 0; i < kTrials; ++i) {
+        ts_disp[i] = time_dispatch_cuda(a, b);
+        ts_ref[i] = time_reference_cuda(a, b, out);
+    }
+    const double t_disp = median(ts_disp);
+    const double t_ref = median(ts_ref);
+    emit_csv("add", "cuda_dispatch", kN, t_disp);
+    emit_csv("add", "cuda_reference", kN, t_ref);
+    EXPECT_LE(t_disp, 1.10 * t_ref)
+        << "dispatch median=" << t_disp << "s reference median=" << t_ref << "s";
+}
+
+#endif // CTORCH_HAS_CUDA
