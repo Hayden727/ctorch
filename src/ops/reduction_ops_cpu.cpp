@@ -361,7 +361,17 @@ void argmin_cpu(const Tensor& in, Tensor& idx, int axis) {
     argmaxmin_cpu_dispatch<ops::MinF>(in, idx, axis, "argmin");
 }
 
-// ---------- registrar ----------------------------------------------------
+} // namespace
+
+#if defined(CTORCH_HAS_CUDA)
+// Implemented in src/ops/reduction_ops_cuda.cu. Referencing this
+// symbol from here forces the linker to pull the .cu TU into the
+// final binary, which in turn brings the CUDA-side dispatch
+// registrations along (same trick as binary_ops_cpu.cpp).
+extern "C" void ctorch_register_cuda_reduction_ops();
+#endif
+
+namespace {
 
 struct CPUReductionRegistrar {
     CPUReductionRegistrar() {
@@ -374,6 +384,9 @@ struct CPUReductionRegistrar {
         dispatch::register_op<op::MinValIdxOp>(Device::Kind::CPU, &min_val_idx_cpu);
         dispatch::register_op<op::ArgmaxOp>(Device::Kind::CPU, &argmax_cpu);
         dispatch::register_op<op::ArgminOp>(Device::Kind::CPU, &argmin_cpu);
+#if defined(CTORCH_HAS_CUDA)
+        ctorch_register_cuda_reduction_ops();
+#endif
     }
 };
 const CPUReductionRegistrar kCpuReductionRegistrar{};
