@@ -60,8 +60,10 @@ struct NegF {
 };
 
 struct AbsF {
-    // Same UB-avoidance trick as NegF for the signed minimum: do the
-    // negation through the unsigned representation.
+    // Integer paths use unsigned arithmetic so abs(INT_MIN) wraps cleanly
+    // to INT_MIN (matches PyTorch) instead of triggering signed-overflow
+    // UB. The float path delegates to fabs/fabsf, which propagate NaN and
+    // clear the sign of -0.0 (so abs(-0.0) returns +0.0 as one expects).
     template <class T> CTORCH_OP_FN T operator()(T a) const {
         if constexpr (std::is_unsigned_v<T>) {
             return a;
@@ -71,14 +73,26 @@ struct AbsF {
             }
             using U = std::make_unsigned_t<T>;
             return static_cast<T>(static_cast<U>(0) - static_cast<U>(a));
+        } else if constexpr (std::is_same_v<T, float>) {
+            return ::fabsf(a);
         } else {
-            return a < T(0) ? -a : a;
+            return ::fabs(a);
         }
     }
 };
 
 struct ReluF {
-    template <class T> CTORCH_OP_FN T operator()(T a) const { return a > T(0) ? a : T(0); }
+    // For floating-point inputs, propagate NaN — `NaN > 0` is false, so
+    // the naive ternary would silently flip NaN to 0. This matches
+    // PyTorch's documented relu semantics.
+    template <class T> CTORCH_OP_FN T operator()(T a) const {
+        if constexpr (std::is_floating_point_v<T>) {
+            if (a != a) {
+                return a;
+            }
+        }
+        return a > T(0) ? a : T(0);
+    }
 };
 
 // ---------- unary, transcendental (float-only) ----------

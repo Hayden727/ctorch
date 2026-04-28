@@ -128,6 +128,31 @@ TEST(UnaryNeg, RejectsBoolInput) {
     EXPECT_THROW(neg(a), DTypeError);
 }
 
+TEST(UnaryRelu, PropagatesNaN) {
+    // PyTorch propagates NaN through relu; the naive `a > 0 ? a : 0`
+    // ternary silently flips NaN to 0 because `NaN > 0` is false.
+    const float kNaN = std::numeric_limits<float>::quiet_NaN();
+    auto a = make_filled<float>({3}, dtype::float32, {kNaN, -1.0f, 2.0f});
+    auto out = read_all<float>(relu(a));
+    EXPECT_TRUE(std::isnan(out[0])) << "got " << out[0];
+    EXPECT_FLOAT_EQ(out[1], 0.0f);
+    EXPECT_FLOAT_EQ(out[2], 2.0f);
+}
+
+TEST(UnaryAbs, NegativeZeroBecomesPositiveZero) {
+    // abs(-0.0) should clear the sign bit, matching IEEE 754 / fabs.
+    auto a = make_filled<float>({1}, dtype::float32, {-0.0f});
+    const float got = read_all<float>(abs(a))[0];
+    EXPECT_EQ(got, 0.0f);
+    EXPECT_FALSE(std::signbit(got)) << "abs(-0.0) returned -0.0";
+}
+
+TEST(UnaryAbs, FloatPreservesNaN) {
+    const double kNaN = std::numeric_limits<double>::quiet_NaN();
+    auto a = make_filled<double>({1}, dtype::float64, {kNaN});
+    EXPECT_TRUE(std::isnan(read_all<double>(abs(a))[0]));
+}
+
 TEST(UnaryNeg, IntMinDoesNotOverflow) {
     // Signed-min negation is UB by the standard; ours uses unsigned arithmetic
     // so the bit pattern wraps cleanly to itself.
