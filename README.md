@@ -110,7 +110,7 @@ order &mdash; later phases assume the contracts established by earlier ones (Ten
 - [x] Element-wise ops with broadcasting on both backends (`add`, `sub`, `mul`, `div`, `relu`, &hellip;) ([#3])
 - [x] Type promotion (`promote_types`) and `to(device)` host&harr;device transfer ([#2], [#3])
 - [x] Numerical-parity test harness: NPY fixtures + tolerance table ([#3])
-- [ ] Reductions (`sum`, `mean`, `max`, `argmax`) with axis &amp; keepdim
+- [x] Reductions (`sum`, `mean`, `prod`, `max`, `min`, `argmax`, `argmin`) with axis &amp; keepdim ([#9])
 - [ ] Indexing &amp; slicing: `slice`, `select`, `narrow`, advanced indexing
 - [ ] Linear algebra: `matmul`/`transpose` &rarr; OpenBLAS (CPU) and cuBLAS (CUDA)
 - [ ] Public `Tensor::to(dtype)` and CUDA dtype-cast kernel
@@ -119,6 +119,7 @@ order &mdash; later phases assume the contracts established by earlier ones (Ten
 [#2]: https://github.com/Hayden727/ctorch/issues/2
 [#3]: https://github.com/Hayden727/ctorch/issues/3
 [#5]: https://github.com/Hayden727/ctorch/issues/5
+[#9]: https://github.com/Hayden727/ctorch/issues/9
 
 **Phase 2 &mdash; Autograd**
 - [ ] Reverse-mode AD: `Tensor::requires_grad`, dynamic tape, device-agnostic
