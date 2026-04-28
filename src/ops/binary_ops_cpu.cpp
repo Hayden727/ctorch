@@ -28,6 +28,10 @@
 #include "ops/functors.h"
 #include "ops/tensor_iter.h"
 
+#if defined(CTORCH_HAS_CUDA)
+#include "cuda/device_guard.h"
+#endif
+
 #include <cstdint>
 
 namespace ctorch {
@@ -166,6 +170,14 @@ Tensor maybe_cast(const Tensor& t, dtype target) {
                          "Cast the operand explicitly on CPU, or arrange for "
                          "the CUDA tensor to be contiguous before the op.");
     }
+#if defined(CTORCH_HAS_CUDA)
+    // Pin the calling thread to the source tensor's CUDA device so the
+    // download → cast → upload round-trip routes both halves of the
+    // copy through the right context on multi-GPU hosts. Without this,
+    // if the current device differs from `t.device()` the upload would
+    // allocate / cudaMemcpy on the wrong device.
+    cuda::DeviceGuard device_guard(t.device().index);
+#endif
     auto cpu = t.to(Device::cpu());
     auto cast = ops::cast_cpu(cpu, target);
     return cast.to(t.device());
