@@ -194,6 +194,173 @@ void mean_cpu(const Tensor& in, Tensor& out, const ReductionAxes& ax) {
     }
 }
 
+// ---------- max / min (values only, multi-axis or whole-tensor) ----------
+
+template <class Op>
+void maxmin_cpu_dispatch(const Tensor& in, Tensor& out, const ReductionAxes& ax, const char* name) {
+    switch (in.dtype()) {
+    case dtype::float32:
+        run_reduction<float, float, Op, float>(in, out, ax, Op{});
+        break;
+    case dtype::float64:
+        run_reduction<double, double, Op, double>(in, out, ax, Op{});
+        break;
+    case dtype::int32:
+        run_reduction<std::int32_t, std::int32_t, Op, std::int32_t>(in, out, ax, Op{});
+        break;
+    case dtype::int64:
+        run_reduction<std::int64_t, std::int64_t, Op, std::int64_t>(in, out, ax, Op{});
+        break;
+    case dtype::bool_:
+        run_reduction<unsigned char, unsigned char, Op, unsigned char>(in, out, ax, Op{});
+        break;
+    case dtype::bfloat16:
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
+    }
+}
+
+void max_val_cpu(const Tensor& in, Tensor& out, const ReductionAxes& ax) {
+    maxmin_cpu_dispatch<ops::MaxF>(in, out, ax, "max");
+}
+void min_val_cpu(const Tensor& in, Tensor& out, const ReductionAxes& ax) {
+    maxmin_cpu_dispatch<ops::MinF>(in, out, ax, "min");
+}
+
+// ---------- max / min with indices (single axis) -----------------------
+
+// Single-axis kernel that records both the running best value and its
+// position along the reduced axis. `vals_out` may be null for the
+// argmax/argmin paths that only need the index.
+template <class T, class Op>
+void run_axis_with_idx_cpu(const Tensor& in, Tensor* vals_out, Tensor& idx_out, int axis) {
+    const auto& shape = in.shape();
+    const auto& stride = in.stride();
+    const int rank = static_cast<int>(shape.size());
+    const std::int64_t reduced_size = shape[static_cast<std::size_t>(axis)];
+    const std::int64_t reduced_stride = stride[static_cast<std::size_t>(axis)];
+
+    // Build a ReductionAxes with the single axis flagged so we can reuse
+    // the shared plan helper for the kept-axis odometer.
+    ReductionAxes ax{};
+    ax.rank = rank;
+    ax.reduce[static_cast<std::size_t>(axis)] = true;
+    ax.reduced_numel = reduced_size;
+    ax.kept_numel = 1;
+    for (int d = 0; d < rank; ++d) {
+        if (d != axis) {
+            ax.kept_numel *= shape[static_cast<std::size_t>(d)];
+        }
+    }
+    const Tensor& reference_out = vals_out != nullptr ? *vals_out : idx_out;
+    const auto plan = ops::make_reduction_plan(in, reference_out, ax);
+
+    const auto* in_base = static_cast<const T*>(in.storage().data());
+    T* vals_base = vals_out != nullptr ? static_cast<T*>(vals_out->storage().data()) : nullptr;
+    auto* idx_base = static_cast<std::int64_t*>(idx_out.storage().data());
+
+    std::array<std::int64_t, ops::kMaxRank> kidx{};
+    std::int64_t in_kept_off = plan.in_offset_elems;
+    std::int64_t out_off = plan.out_offset_elems;
+    for (std::int64_t k = 0; k < plan.kept_numel; ++k) {
+        // First element seeds the running best so first-occurrence-wins
+        // semantics apply uniformly even with a NaN-only slice.
+        T best = in_base[in_kept_off];
+        std::int64_t best_idx = 0;
+        for (std::int64_t r = 1; r < reduced_size; ++r) {
+            const T v = in_base[in_kept_off + r * reduced_stride];
+            if (Op::template should_replace<T>(best, v)) {
+                best = v;
+                best_idx = r;
+            }
+        }
+        if (vals_base != nullptr) {
+            vals_base[out_off] = best;
+        }
+        idx_base[out_off] = best_idx;
+
+        // Advance kept odometer (same loop as run_reduction).
+        for (int d = plan.rank_kept - 1; d >= 0; --d) {
+            const auto u = static_cast<std::size_t>(d);
+            ++kidx[u];
+            in_kept_off += plan.stride_in_kept[u];
+            out_off += plan.stride_out[u];
+            if (kidx[u] < plan.shape_kept[u]) {
+                break;
+            }
+            kidx[u] = 0;
+            in_kept_off -= plan.stride_in_kept[u] * plan.shape_kept[u];
+            out_off -= plan.stride_out[u] * plan.shape_kept[u];
+        }
+    }
+}
+
+template <class Op>
+void maxmin_with_idx_cpu_dispatch(const Tensor& in, Tensor& vals, Tensor& idx, int axis,
+                                  const char* name) {
+    switch (in.dtype()) {
+    case dtype::float32:
+        run_axis_with_idx_cpu<float, Op>(in, &vals, idx, axis);
+        break;
+    case dtype::float64:
+        run_axis_with_idx_cpu<double, Op>(in, &vals, idx, axis);
+        break;
+    case dtype::int32:
+        run_axis_with_idx_cpu<std::int32_t, Op>(in, &vals, idx, axis);
+        break;
+    case dtype::int64:
+        run_axis_with_idx_cpu<std::int64_t, Op>(in, &vals, idx, axis);
+        break;
+    case dtype::bool_:
+        run_axis_with_idx_cpu<unsigned char, Op>(in, &vals, idx, axis);
+        break;
+    case dtype::bfloat16:
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
+    }
+}
+
+void max_val_idx_cpu(const Tensor& in, Tensor& vals, Tensor& idx, int axis) {
+    maxmin_with_idx_cpu_dispatch<ops::MaxF>(in, vals, idx, axis, "max");
+}
+void min_val_idx_cpu(const Tensor& in, Tensor& vals, Tensor& idx, int axis) {
+    maxmin_with_idx_cpu_dispatch<ops::MinF>(in, vals, idx, axis, "min");
+}
+
+template <class Op>
+void argmaxmin_cpu_dispatch(const Tensor& in, Tensor& idx, int axis, const char* name) {
+    switch (in.dtype()) {
+    case dtype::float32:
+        run_axis_with_idx_cpu<float, Op>(in, nullptr, idx, axis);
+        break;
+    case dtype::float64:
+        run_axis_with_idx_cpu<double, Op>(in, nullptr, idx, axis);
+        break;
+    case dtype::int32:
+        run_axis_with_idx_cpu<std::int32_t, Op>(in, nullptr, idx, axis);
+        break;
+    case dtype::int64:
+        run_axis_with_idx_cpu<std::int64_t, Op>(in, nullptr, idx, axis);
+        break;
+    case dtype::bool_:
+        run_axis_with_idx_cpu<unsigned char, Op>(in, nullptr, idx, axis);
+        break;
+    case dtype::bfloat16:
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
+    }
+}
+
+void argmax_cpu(const Tensor& in, Tensor& idx, int axis) {
+    argmaxmin_cpu_dispatch<ops::MaxF>(in, idx, axis, "argmax");
+}
+void argmin_cpu(const Tensor& in, Tensor& idx, int axis) {
+    argmaxmin_cpu_dispatch<ops::MinF>(in, idx, axis, "argmin");
+}
+
 // ---------- registrar ----------------------------------------------------
 
 struct CPUReductionRegistrar {
@@ -201,6 +368,12 @@ struct CPUReductionRegistrar {
         dispatch::register_op<op::SumOp>(Device::Kind::CPU, &sum_cpu);
         dispatch::register_op<op::ProdOp>(Device::Kind::CPU, &prod_cpu);
         dispatch::register_op<op::MeanOp>(Device::Kind::CPU, &mean_cpu);
+        dispatch::register_op<op::MaxValOp>(Device::Kind::CPU, &max_val_cpu);
+        dispatch::register_op<op::MinValOp>(Device::Kind::CPU, &min_val_cpu);
+        dispatch::register_op<op::MaxValIdxOp>(Device::Kind::CPU, &max_val_idx_cpu);
+        dispatch::register_op<op::MinValIdxOp>(Device::Kind::CPU, &min_val_idx_cpu);
+        dispatch::register_op<op::ArgmaxOp>(Device::Kind::CPU, &argmax_cpu);
+        dispatch::register_op<op::ArgminOp>(Device::Kind::CPU, &argmin_cpu);
     }
 };
 const CPUReductionRegistrar kCpuReductionRegistrar{};
@@ -227,6 +400,49 @@ Tensor mean_front(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim,
     return out;
 }
 
+template <class OpKey>
+Tensor maxmin_value_front(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim,
+                          const char* name) {
+    ops::reject_bfloat16(x.dtype(), name);
+    const auto ax = ops::canonicalise(x, std::move(dims));
+    if (ax.reduced_numel == 0) {
+        throw ShapeError(std::string("ctorch::") + name +
+                         ": cannot reduce a zero-element slice (operation has no identity)");
+    }
+    Tensor out(ops::reduced_shape(x, ax, keepdim), x.dtype(), x.device());
+    dispatch::call<OpKey>(x.device().kind, x, out, ax);
+    return out;
+}
+
+template <class OpKey>
+ValuesIndices maxmin_with_idx_front(const Tensor& x, std::int64_t dim, bool keepdim,
+                                    const char* name) {
+    ops::reject_bfloat16(x.dtype(), name);
+    const int axis = ops::canonicalise_single(x, dim);
+    if (x.shape()[static_cast<std::size_t>(axis)] == 0) {
+        throw ShapeError(std::string("ctorch::") + name +
+                         ": cannot reduce a zero-length axis (operation has no identity)");
+    }
+    const auto out_shape = ops::reduced_shape_single(x, axis, keepdim);
+    Tensor vals(out_shape, x.dtype(), x.device());
+    Tensor idx(out_shape, dtype::int64, x.device());
+    dispatch::call<OpKey>(x.device().kind, x, vals, idx, axis);
+    return ValuesIndices{std::move(vals), std::move(idx)};
+}
+
+template <class OpKey>
+Tensor argmaxmin_front(const Tensor& x, std::int64_t dim, bool keepdim, const char* name) {
+    ops::reject_bfloat16(x.dtype(), name);
+    const int axis = ops::canonicalise_single(x, dim);
+    if (x.shape()[static_cast<std::size_t>(axis)] == 0) {
+        throw ShapeError(std::string("ctorch::") + name +
+                         ": cannot reduce a zero-length axis (operation has no identity)");
+    }
+    Tensor idx(ops::reduced_shape_single(x, axis, keepdim), dtype::int64, x.device());
+    dispatch::call<OpKey>(x.device().kind, x, idx, axis);
+    return idx;
+}
+
 } // namespace
 
 // ---------- public free functions ----------------------------------------
@@ -244,6 +460,29 @@ Tensor prod(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim) {
 Tensor mean(const Tensor& x) { return mean_front(x, {}, false, "mean"); }
 Tensor mean(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim) {
     return mean_front(x, std::move(dims), keepdim, "mean");
+}
+
+Tensor max(const Tensor& x) { return maxmin_value_front<op::MaxValOp>(x, {}, false, "max"); }
+Tensor max(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim) {
+    return maxmin_value_front<op::MaxValOp>(x, std::move(dims), keepdim, "max");
+}
+ValuesIndices max(const Tensor& x, std::int64_t dim, bool keepdim) {
+    return maxmin_with_idx_front<op::MaxValIdxOp>(x, dim, keepdim, "max");
+}
+
+Tensor min(const Tensor& x) { return maxmin_value_front<op::MinValOp>(x, {}, false, "min"); }
+Tensor min(const Tensor& x, std::vector<std::int64_t> dims, bool keepdim) {
+    return maxmin_value_front<op::MinValOp>(x, std::move(dims), keepdim, "min");
+}
+ValuesIndices min(const Tensor& x, std::int64_t dim, bool keepdim) {
+    return maxmin_with_idx_front<op::MinValIdxOp>(x, dim, keepdim, "min");
+}
+
+Tensor argmax(const Tensor& x, std::int64_t dim, bool keepdim) {
+    return argmaxmin_front<op::ArgmaxOp>(x, dim, keepdim, "argmax");
+}
+Tensor argmin(const Tensor& x, std::int64_t dim, bool keepdim) {
+    return argmaxmin_front<op::ArgminOp>(x, dim, keepdim, "argmin");
 }
 
 } // namespace ctorch
