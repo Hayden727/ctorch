@@ -185,14 +185,24 @@ not yet implemented &mdash; they document the eventual surface, not the shipping
 
 ```cpp
 #include <ctorch/tensor.h>
+#include <ctorch/ops/elementwise.h>
 
 int main() {
-  auto a = ctorch::randn({2, 3});           // CPU by default
-  auto b = ctorch::ones({2, 3}).to(ctorch::Device::CUDA);
-  auto c = a.to(ctorch::Device::CUDA) + b;  // dispatches on device
-  std::cout << c.cpu() << '\n';
+  // Construct a fresh contiguous, zero-initialized tensor on CPU.
+  ctorch::Tensor a({3, 1}, ctorch::dtype::float32, ctorch::Device::cpu());
+  ctorch::Tensor b({1, 4}, ctorch::dtype::float32, ctorch::Device::cpu());
+  // ... fill a and b ...
+
+  // Element-wise add with NumPy/PyTorch broadcasting → shape {3, 4}.
+  auto c = ctorch::relu(a + b);
+  // Move the result onto a CUDA device and back.
+  auto c_gpu = c.to(ctorch::Device::cuda(0));
+  auto c_cpu = c_gpu.to(ctorch::Device::cpu());
 }
 ```
+
+See [docs/ops.md](docs/ops.md) for the full element-wise op catalog,
+broadcasting rules, and parity tolerances.
 
 ### Autograd
 

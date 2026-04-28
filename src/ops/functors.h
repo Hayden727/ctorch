@@ -1,0 +1,164 @@
+//===- src/ops/functors.h - Element-wise op functors -----------*- C++ -*-===//
+//
+// Part of the ctorch Project, under the MIT License.
+// See LICENSE for license information.
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// Tiny callable types injected into the templated CPU and CUDA kernels.
+/// Defining each op once in a `__host__ __device__`-aware header makes it
+/// impossible for the two backends' arithmetic to drift.
+///
+//===----------------------------------------------------------------------===//
+
+#ifndef CTORCH_OPS_FUNCTORS_H
+#define CTORCH_OPS_FUNCTORS_H
+
+#include <cmath>
+#include <type_traits>
+
+#if defined(__CUDACC__)
+#define CTORCH_OP_FN __host__ __device__ inline
+#else
+#define CTORCH_OP_FN inline
+#endif
+
+namespace ctorch::ops {
+
+// ---------- binary ----------
+
+// Signed integer overflow is UB in C++ (e.g. INT_MAX + 1), so add/sub/mul
+// route signed integer paths through their unsigned representation to get
+// well-defined two's-complement wraparound — what users expect from tensor
+// integer math, and what PyTorch does. Floating-point and unsigned paths
+// are unchanged. DivF doesn't need the same treatment because the front
+// door rejects integer division entirely (see binary_ops_cpu.cpp).
+namespace detail {
+template <class Op, class T> CTORCH_OP_FN T binary_arith_signed_safe(T a, T b, Op op) {
+    if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+        using U = std::make_unsigned_t<T>;
+        return static_cast<T>(op(static_cast<U>(a), static_cast<U>(b)));
+    } else {
+        return op(a, b);
+    }
+}
+} // namespace detail
+
+struct AddF {
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x + y; });
+    }
+};
+struct SubF {
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x - y; });
+    }
+};
+struct MulF {
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x * y; });
+    }
+};
+struct DivF {
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const { return a / b; }
+};
+
+// ---------- unary, dtype-agnostic ----------
+
+struct NegF {
+    // Use unsigned arithmetic on signed integers so `neg(INT_MIN)` /
+    // `neg(LLONG_MIN)` produce a defined two's-complement wrap (still the
+    // same bit pattern back) instead of triggering signed-overflow UB —
+    // matches PyTorch's documented behaviour.
+    template <class T> CTORCH_OP_FN T operator()(T a) const {
+        if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+            using U = std::make_unsigned_t<T>;
+            return static_cast<T>(static_cast<U>(0) - static_cast<U>(a));
+        } else {
+            return -a;
+        }
+    }
+};
+
+struct AbsF {
+    // Integer paths use unsigned arithmetic so abs(INT_MIN) wraps cleanly
+    // to INT_MIN (matches PyTorch) instead of triggering signed-overflow
+    // UB. The float path delegates to fabs/fabsf, which propagate NaN and
+    // clear the sign of -0.0 (so abs(-0.0) returns +0.0 as one expects).
+    template <class T> CTORCH_OP_FN T operator()(T a) const {
+        if constexpr (std::is_unsigned_v<T>) {
+            return a;
+        } else if constexpr (std::is_integral_v<T>) {
+            if (a >= T(0)) {
+                return a;
+            }
+            using U = std::make_unsigned_t<T>;
+            return static_cast<T>(static_cast<U>(0) - static_cast<U>(a));
+        } else if constexpr (std::is_same_v<T, float>) {
+            return ::fabsf(a);
+        } else {
+            return ::fabs(a);
+        }
+    }
+};
+
+struct ReluF {
+    // For floating-point inputs, propagate NaN — `NaN > 0` is false, so
+    // the naive ternary would silently flip NaN to 0. This matches
+    // PyTorch's documented relu semantics.
+    template <class T> CTORCH_OP_FN T operator()(T a) const {
+        if constexpr (std::is_floating_point_v<T>) {
+            if (a != a) {
+                return a;
+            }
+        }
+        return a > T(0) ? a : T(0);
+    }
+};
+
+// ---------- unary, transcendental (float-only) ----------
+
+struct ExpF {
+    CTORCH_OP_FN float operator()(float x) const { return ::expf(x); }
+    CTORCH_OP_FN double operator()(double x) const { return ::exp(x); }
+};
+
+struct LogF {
+    CTORCH_OP_FN float operator()(float x) const { return ::logf(x); }
+    CTORCH_OP_FN double operator()(double x) const { return ::log(x); }
+};
+
+struct SqrtF {
+    CTORCH_OP_FN float operator()(float x) const { return ::sqrtf(x); }
+    CTORCH_OP_FN double operator()(double x) const { return ::sqrt(x); }
+};
+
+struct SigmoidF {
+    CTORCH_OP_FN float operator()(float x) const {
+        // 1 / (1 + exp(-x)). Stable for x >= 0; for very negative x we fall
+        // back to exp(x) / (1 + exp(x)) to avoid blowing up the denominator.
+        if (x >= 0.0f) {
+            return 1.0f / (1.0f + ::expf(-x));
+        }
+        const float e = ::expf(x);
+        return e / (1.0f + e);
+    }
+    CTORCH_OP_FN double operator()(double x) const {
+        if (x >= 0.0) {
+            return 1.0 / (1.0 + ::exp(-x));
+        }
+        const double e = ::exp(x);
+        return e / (1.0 + e);
+    }
+};
+
+struct TanhF {
+    CTORCH_OP_FN float operator()(float x) const { return ::tanhf(x); }
+    CTORCH_OP_FN double operator()(double x) const { return ::tanh(x); }
+};
+
+} // namespace ctorch::ops
+
+#endif // CTORCH_OPS_FUNCTORS_H
