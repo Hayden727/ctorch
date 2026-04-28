@@ -20,6 +20,7 @@
 #ifndef CTORCH_OPS_ELEMENTWISE_H
 #define CTORCH_OPS_ELEMENTWISE_H
 
+#include "ctorch/errors.h"
 #include "ctorch/tensor.h"
 
 namespace ctorch {
