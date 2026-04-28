@@ -19,6 +19,12 @@
 
 #include "ctorch/tensor.h"
 
+#include <cstdint>
+
+namespace ctorch::ops {
+struct ReductionAxes; // defined in src/ops/reduction.h
+} // namespace ctorch::ops
+
 namespace ctorch::op {
 
 // Element-wise binary ops. Output tensor is preallocated by the front-door
@@ -83,6 +89,49 @@ struct SigmoidOp {
 };
 struct TanhOp {
     using fn_t = UnaryFn;
+};
+
+// ---------- reductions ----------
+
+// Multi-axis / whole-tensor reductions. The output tensor is preallocated
+// with the post-reduction shape and the dtype dictated by the front-door
+// (issue 09 §F7); the kernel writes into it.
+using ReduceFn = void (*)(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax);
+
+// Single-axis values+indices reductions (PyTorch's max/min along a dim).
+// Both outputs are preallocated by the front-door — `vals` shares dtype
+// with the input, `idx` is always int64.
+using ReduceWithIdxFn = void (*)(const Tensor& in, Tensor& vals, Tensor& idx, int axis);
+
+// Argmax/argmin: just the int64 index, no values.
+using ArgFn = void (*)(const Tensor& in, Tensor& idx, int axis);
+
+struct SumOp {
+    using fn_t = ReduceFn;
+};
+struct MeanOp {
+    using fn_t = ReduceFn;
+};
+struct ProdOp {
+    using fn_t = ReduceFn;
+};
+struct MaxValOp {
+    using fn_t = ReduceFn;
+};
+struct MinValOp {
+    using fn_t = ReduceFn;
+};
+struct MaxValIdxOp {
+    using fn_t = ReduceWithIdxFn;
+};
+struct MinValIdxOp {
+    using fn_t = ReduceWithIdxFn;
+};
+struct ArgmaxOp {
+    using fn_t = ArgFn;
+};
+struct ArgminOp {
+    using fn_t = ArgFn;
 };
 
 } // namespace ctorch::op
