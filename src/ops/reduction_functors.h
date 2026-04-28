@@ -61,19 +61,25 @@ struct MaxF {
         }
     }
     template <class Acc, class T> static CTORCH_REDUCE_FN void apply(Acc& acc, T v) {
-        const Acc vc = static_cast<Acc>(v);
+        if (should_replace<Acc>(acc, static_cast<Acc>(v))) {
+            acc = static_cast<Acc>(v);
+        }
+    }
+    /// True iff a fresh value `v` should overwrite the running best
+    /// `cur`. Strict comparison so that ties keep the **first**
+    /// occurrence (matches PyTorch's argmax tie-breaking). NaN
+    /// propagation: once `cur` is NaN nothing replaces it; an incoming
+    /// NaN replaces a non-NaN `cur` (so the first NaN's index wins).
+    template <class Acc> static CTORCH_REDUCE_FN bool should_replace(Acc cur, Acc v) {
         if constexpr (std::is_floating_point_v<Acc>) {
-            if (acc != acc) {
-                return; // sticky NaN
+            if (cur != cur) {
+                return false;
             }
-            if (vc != vc) {
-                acc = vc;
-                return;
+            if (v != v) {
+                return true;
             }
         }
-        if (acc < vc) {
-            acc = vc;
-        }
+        return v > cur;
     }
 };
 
@@ -86,19 +92,20 @@ struct MinF {
         }
     }
     template <class Acc, class T> static CTORCH_REDUCE_FN void apply(Acc& acc, T v) {
-        const Acc vc = static_cast<Acc>(v);
+        if (should_replace<Acc>(acc, static_cast<Acc>(v))) {
+            acc = static_cast<Acc>(v);
+        }
+    }
+    template <class Acc> static CTORCH_REDUCE_FN bool should_replace(Acc cur, Acc v) {
         if constexpr (std::is_floating_point_v<Acc>) {
-            if (acc != acc) {
-                return;
+            if (cur != cur) {
+                return false;
             }
-            if (vc != vc) {
-                acc = vc;
-                return;
+            if (v != v) {
+                return true;
             }
         }
-        if (acc > vc) {
-            acc = vc;
-        }
+        return v < cur;
     }
 };
 

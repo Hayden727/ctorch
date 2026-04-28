@@ -37,6 +37,11 @@ ctorch_add_test(reduction_value_test
   LIBS    ctorch_core
 )
 
+ctorch_add_test(reduction_dtype_test
+  SOURCES reduction_dtype_test.cpp
+  LIBS    ctorch_core
+)
+
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test
     SOURCES cuda_smoke_test.cpp
