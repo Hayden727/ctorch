@@ -7,14 +7,25 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// CUDA kernels for reductions. This commit ships the whole-tensor
-/// path — a two-pass tree reduction that handles any input rank or
-/// stride pattern by walking the reduced subspace via the shared
-/// `ReductionPlan` odometer. Per-tile partials accumulate in shared
-/// memory; a single block reduces the partials into the 0-d output.
+/// CUDA kernels for reductions. Two kernel families:
 ///
-/// Axis reductions (kept_numel > 1) are stubbed in this commit and
-/// throw `DeviceError`; commit 5 fills in the kernel.
+///   1. **Whole-tensor** (`kept_numel == 1`): two-pass tree reduction.
+///      Pass 1 reads the input via the strided odometer, folds into
+///      shared memory, and writes one partial per block. Pass 2
+///      reduces the partials in a single block.
+///
+///   2. **Axis** (`kept_numel > 1`): one thread per output element.
+///      Each thread decodes its kept-axis offset, then walks the
+///      reduced subspace serially with a per-thread odometer kept in
+///      registers. Same kernel handles innermost and non-innermost
+///      reduced axes; transpose-then-reduce optimisation for the
+///      latter is deferred to a follow-up issue (issue #9 §7).
+///
+///   3. **Axis with indices** (`max(x, dim)` / `min(x, dim)` /
+///      `argmax` / `argmin`): like family 2 but tracks
+///      `(best_value, best_idx)` along a single reduced axis. The
+///      `RecordValue` template parameter lets argmax/argmin reuse the
+///      same kernel and skip the value write.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -209,33 +220,165 @@ void launch_whole_tensor(const Tensor& in, Tensor& out) {
     check_cuda("reduction_cuda_pass2");
 }
 
-// ---------- Per-op dtype dispatch + axis-path stub --------------------
+// ---------- Axis-reduction kernel (multi-axis, values only) -----------
 
-[[noreturn]] void axis_not_implemented_yet(const char* name) {
-    throw DeviceError(std::string("ctorch::") + name +
-                      ": axis reductions on CUDA are not yet implemented "
-                      "(landing in commit 5)");
+template <class T, class Acc, class Op, class OutT>
+__global__ void axis_reduce_kernel(const T* in_base, OutT* out_base, ops::ReductionPlan plan) {
+    const std::int64_t k = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (k >= plan.kept_numel) {
+        return;
+    }
+    // Decode the linear kept-axis index `k` into base offsets via the
+    // kept odometer (input-side strides come from the plan).
+    std::int64_t in_kept_off = plan.in_offset_elems;
+    std::int64_t out_off = plan.out_offset_elems;
+    std::int64_t remainder = k;
+    for (int d = plan.rank_kept - 1; d >= 0; --d) {
+        const std::int64_t dim = plan.shape_kept[d];
+        const std::int64_t coord = remainder % dim;
+        remainder /= dim;
+        in_kept_off += coord * plan.stride_in_kept[d];
+        out_off += coord * plan.stride_out[d];
+    }
+
+    Acc acc = Op::template identity<Acc>();
+    // Per-thread reduced-axis odometer. Lives in registers (kMaxRank
+    // entries); same advance pattern as the CPU run_reduction kernel.
+    std::int64_t ridx[ops::kMaxRank] = {};
+    std::int64_t in_red_off = 0;
+    for (std::int64_t r = 0; r < plan.reduced_numel; ++r) {
+        const T v = in_base[in_kept_off + in_red_off];
+        Op::template apply<Acc, T>(acc, v);
+        for (int d = plan.rank_reduced - 1; d >= 0; --d) {
+            ++ridx[d];
+            in_red_off += plan.stride_in_reduced[d];
+            if (ridx[d] < plan.shape_reduced[d]) {
+                break;
+            }
+            ridx[d] = 0;
+            in_red_off -= plan.stride_in_reduced[d] * plan.shape_reduced[d];
+        }
+    }
+    out_base[out_off] = static_cast<OutT>(acc);
+}
+
+template <class T, class Acc, class Op, class OutT>
+void launch_axis_reduce(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
+    cuda::DeviceGuard device_guard(out.device().index);
+    const auto plan = ops::make_reduction_plan(in, out, ax);
+    if (plan.kept_numel == 0) {
+        return;
+    }
+    const auto* in_base = static_cast<const T*>(in.storage().data());
+    auto* out_base = static_cast<OutT*>(out.storage().data());
+    const int blocks = static_cast<int>((plan.kept_numel + kBlockSize - 1) / kBlockSize);
+    axis_reduce_kernel<T, Acc, Op, OutT><<<blocks, kBlockSize>>>(in_base, out_base, plan);
+    check_cuda("reduction_cuda_axis");
+}
+
+// ---------- Axis-with-indices kernel (single reduced axis) ------------
+
+template <class T, class Op, bool RecordValue>
+__global__ void axis_with_idx_kernel(const T* in_base, T* vals_base, std::int64_t* idx_base,
+                                     ops::ReductionPlan plan, std::int64_t reduced_size,
+                                     std::int64_t reduced_stride) {
+    const std::int64_t k = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (k >= plan.kept_numel) {
+        return;
+    }
+    std::int64_t in_kept_off = plan.in_offset_elems;
+    std::int64_t out_off = plan.out_offset_elems;
+    std::int64_t remainder = k;
+    for (int d = plan.rank_kept - 1; d >= 0; --d) {
+        const std::int64_t dim = plan.shape_kept[d];
+        const std::int64_t coord = remainder % dim;
+        remainder /= dim;
+        in_kept_off += coord * plan.stride_in_kept[d];
+        out_off += coord * plan.stride_out[d];
+    }
+
+    // Seed from r=0 so first-occurrence-wins applies even if the slice
+    // is all-NaN (matches CPU + PyTorch semantics).
+    T best = in_base[in_kept_off];
+    std::int64_t best_idx = 0;
+    for (std::int64_t r = 1; r < reduced_size; ++r) {
+        const T v = in_base[in_kept_off + r * reduced_stride];
+        if (Op::template should_replace<T>(best, v)) {
+            best = v;
+            best_idx = r;
+        }
+    }
+    if constexpr (RecordValue) {
+        vals_base[out_off] = best;
+    }
+    idx_base[out_off] = best_idx;
+}
+
+template <class T, class Op, bool RecordValue>
+void launch_axis_with_idx(const Tensor& in, Tensor* vals_out, Tensor& idx_out, int axis) {
+    cuda::DeviceGuard device_guard(idx_out.device().index);
+    const auto& shape = in.shape();
+    const auto& stride = in.stride();
+    const int rank = static_cast<int>(shape.size());
+    const std::int64_t reduced_size = shape[static_cast<std::size_t>(axis)];
+    const std::int64_t reduced_stride = stride[static_cast<std::size_t>(axis)];
+
+    ops::ReductionAxes ax{};
+    ax.rank = rank;
+    ax.reduce[static_cast<std::size_t>(axis)] = true;
+    ax.reduced_numel = reduced_size;
+    ax.kept_numel = 1;
+    for (int d = 0; d < rank; ++d) {
+        if (d != axis) {
+            ax.kept_numel *= shape[static_cast<std::size_t>(d)];
+        }
+    }
+    const Tensor& reference_out = vals_out != nullptr ? *vals_out : idx_out;
+    const auto plan = ops::make_reduction_plan(in, reference_out, ax);
+    if (plan.kept_numel == 0) {
+        return;
+    }
+
+    const auto* in_base = static_cast<const T*>(in.storage().data());
+    T* vals_base = vals_out != nullptr ? static_cast<T*>(vals_out->storage().data()) : nullptr;
+    auto* idx_base = static_cast<std::int64_t*>(idx_out.storage().data());
+
+    const int blocks = static_cast<int>((plan.kept_numel + kBlockSize - 1) / kBlockSize);
+    axis_with_idx_kernel<T, Op, RecordValue>
+        <<<blocks, kBlockSize>>>(in_base, vals_base, idx_base, plan, reduced_size, reduced_stride);
+    check_cuda("reduction_cuda_axis_with_idx");
+}
+
+// ---------- Per-op dtype dispatch -------------------------------------
+
+// Pick the right kernel family based on `ax`. Whole-tensor inputs go
+// through the tree-reduction path (faster, used by the bench);
+// everything else uses the per-output-element axis kernel.
+template <class T, class Acc, class Op, class OutT>
+void dispatch_reduce_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
+    if (ax.kept_numel == 1) {
+        launch_whole_tensor<T, Acc, Op, OutT>(in, out);
+    } else {
+        launch_axis_reduce<T, Acc, Op, OutT>(in, out, ax);
+    }
 }
 
 void sum_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
-    if (ax.kept_numel != 1) {
-        axis_not_implemented_yet("sum");
-    }
     switch (in.dtype()) {
     case dtype::float32:
-        launch_whole_tensor<float, double, ops::SumF, float>(in, out);
+        dispatch_reduce_cuda<float, double, ops::SumF, float>(in, out, ax);
         break;
     case dtype::float64:
-        launch_whole_tensor<double, double, ops::SumF, double>(in, out);
+        dispatch_reduce_cuda<double, double, ops::SumF, double>(in, out, ax);
         break;
     case dtype::int32:
-        launch_whole_tensor<std::int32_t, std::int64_t, ops::SumF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<std::int32_t, std::int64_t, ops::SumF, std::int64_t>(in, out, ax);
         break;
     case dtype::int64:
-        launch_whole_tensor<std::int64_t, std::int64_t, ops::SumF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<std::int64_t, std::int64_t, ops::SumF, std::int64_t>(in, out, ax);
         break;
     case dtype::bool_:
-        launch_whole_tensor<unsigned char, std::int64_t, ops::SumF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<unsigned char, std::int64_t, ops::SumF, std::int64_t>(in, out, ax);
         break;
     case dtype::bfloat16:
         throw DTypeError("ctorch::sum: bfloat16 reductions are not supported");
@@ -243,24 +386,21 @@ void sum_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
 }
 
 void prod_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
-    if (ax.kept_numel != 1) {
-        axis_not_implemented_yet("prod");
-    }
     switch (in.dtype()) {
     case dtype::float32:
-        launch_whole_tensor<float, double, ops::ProdF, float>(in, out);
+        dispatch_reduce_cuda<float, double, ops::ProdF, float>(in, out, ax);
         break;
     case dtype::float64:
-        launch_whole_tensor<double, double, ops::ProdF, double>(in, out);
+        dispatch_reduce_cuda<double, double, ops::ProdF, double>(in, out, ax);
         break;
     case dtype::int32:
-        launch_whole_tensor<std::int32_t, std::int64_t, ops::ProdF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<std::int32_t, std::int64_t, ops::ProdF, std::int64_t>(in, out, ax);
         break;
     case dtype::int64:
-        launch_whole_tensor<std::int64_t, std::int64_t, ops::ProdF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<std::int64_t, std::int64_t, ops::ProdF, std::int64_t>(in, out, ax);
         break;
     case dtype::bool_:
-        launch_whole_tensor<unsigned char, std::int64_t, ops::ProdF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<unsigned char, std::int64_t, ops::ProdF, std::int64_t>(in, out, ax);
         break;
     case dtype::bfloat16:
         throw DTypeError("ctorch::prod: bfloat16 reductions are not supported");
@@ -283,30 +423,59 @@ template <class T> __global__ void mean_finalize_nan(T* out, std::int64_t out_of
     }
 }
 
-template <class T> void launch_mean_whole_tensor(const Tensor& in, Tensor& out) {
-    launch_whole_tensor<T, double, ops::SumF, T>(in, out);
+// Finalisation kernel for the axis path: divides every output by
+// `reduced_numel` (or writes NaN when the slice was empty). Same
+// contract as `mean_finalize` but operates on the whole output buffer.
+template <class T>
+__global__ void mean_axis_finalize(T* out_base, std::int64_t out_offset, std::int64_t out_numel,
+                                   T inv) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i >= out_numel) {
+        return;
+    }
+    out_base[out_offset + i] *= inv;
+}
+
+template <class T>
+__global__ void mean_axis_finalize_nan(T* out_base, std::int64_t out_offset,
+                                       std::int64_t out_numel) {
+    const std::int64_t i = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (i >= out_numel) {
+        return;
+    }
+    const T zero = static_cast<T>(0);
+    out_base[out_offset + i] = zero / zero;
+}
+
+template <class T> void launch_mean(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
+    if (ax.kept_numel == 1) {
+        launch_whole_tensor<T, double, ops::SumF, T>(in, out);
+    } else {
+        launch_axis_reduce<T, double, ops::SumF, T>(in, out, ax);
+    }
     cuda::DeviceGuard device_guard(out.device().index);
     auto* out_base = static_cast<T*>(out.storage().data());
-    const std::int64_t reduced = in.numel();
-    if (reduced == 0) {
-        mean_finalize_nan<T><<<1, 1>>>(out_base, out.offset());
+    const std::int64_t out_numel = out.numel();
+    if (out_numel == 0) {
+        return;
+    }
+    const int blocks = static_cast<int>((out_numel + kBlockSize - 1) / kBlockSize);
+    if (ax.reduced_numel == 0) {
+        mean_axis_finalize_nan<T><<<blocks, kBlockSize>>>(out_base, out.offset(), out_numel);
     } else {
-        const T inv = static_cast<T>(1) / static_cast<T>(reduced);
-        mean_finalize<T><<<1, 1>>>(out_base, out.offset(), inv);
+        const T inv = static_cast<T>(1) / static_cast<T>(ax.reduced_numel);
+        mean_axis_finalize<T><<<blocks, kBlockSize>>>(out_base, out.offset(), out_numel, inv);
     }
     check_cuda("mean_finalize");
 }
 
 void mean_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
-    if (ax.kept_numel != 1) {
-        axis_not_implemented_yet("mean");
-    }
     switch (in.dtype()) {
     case dtype::float32:
-        launch_mean_whole_tensor<float>(in, out);
+        launch_mean<float>(in, out, ax);
         break;
     case dtype::float64:
-        launch_mean_whole_tensor<double>(in, out);
+        launch_mean<double>(in, out, ax);
         break;
     case dtype::int32:
     case dtype::int64:
@@ -317,54 +486,102 @@ void mean_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
     }
 }
 
-void max_val_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
-    if (ax.kept_numel != 1) {
-        axis_not_implemented_yet("max");
-    }
+template <class Op>
+void maxmin_value_cuda_dispatch(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax,
+                                const char* name) {
     switch (in.dtype()) {
     case dtype::float32:
-        launch_whole_tensor<float, float, ops::MaxF, float>(in, out);
+        dispatch_reduce_cuda<float, float, Op, float>(in, out, ax);
         break;
     case dtype::float64:
-        launch_whole_tensor<double, double, ops::MaxF, double>(in, out);
+        dispatch_reduce_cuda<double, double, Op, double>(in, out, ax);
         break;
     case dtype::int32:
-        launch_whole_tensor<std::int32_t, std::int32_t, ops::MaxF, std::int32_t>(in, out);
+        dispatch_reduce_cuda<std::int32_t, std::int32_t, Op, std::int32_t>(in, out, ax);
         break;
     case dtype::int64:
-        launch_whole_tensor<std::int64_t, std::int64_t, ops::MaxF, std::int64_t>(in, out);
+        dispatch_reduce_cuda<std::int64_t, std::int64_t, Op, std::int64_t>(in, out, ax);
         break;
     case dtype::bool_:
-        launch_whole_tensor<unsigned char, unsigned char, ops::MaxF, unsigned char>(in, out);
+        dispatch_reduce_cuda<unsigned char, unsigned char, Op, unsigned char>(in, out, ax);
         break;
     case dtype::bfloat16:
-        throw DTypeError("ctorch::max: bfloat16 reductions are not supported");
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
     }
 }
 
+void max_val_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
+    maxmin_value_cuda_dispatch<ops::MaxF>(in, out, ax, "max");
+}
 void min_val_cuda(const Tensor& in, Tensor& out, const ops::ReductionAxes& ax) {
-    if (ax.kept_numel != 1) {
-        axis_not_implemented_yet("min");
-    }
+    maxmin_value_cuda_dispatch<ops::MinF>(in, out, ax, "min");
+}
+
+template <class Op>
+void maxmin_with_idx_cuda_dispatch(const Tensor& in, Tensor& vals, Tensor& idx, int axis,
+                                   const char* name) {
     switch (in.dtype()) {
     case dtype::float32:
-        launch_whole_tensor<float, float, ops::MinF, float>(in, out);
+        launch_axis_with_idx<float, Op, true>(in, &vals, idx, axis);
         break;
     case dtype::float64:
-        launch_whole_tensor<double, double, ops::MinF, double>(in, out);
+        launch_axis_with_idx<double, Op, true>(in, &vals, idx, axis);
         break;
     case dtype::int32:
-        launch_whole_tensor<std::int32_t, std::int32_t, ops::MinF, std::int32_t>(in, out);
+        launch_axis_with_idx<std::int32_t, Op, true>(in, &vals, idx, axis);
         break;
     case dtype::int64:
-        launch_whole_tensor<std::int64_t, std::int64_t, ops::MinF, std::int64_t>(in, out);
+        launch_axis_with_idx<std::int64_t, Op, true>(in, &vals, idx, axis);
         break;
     case dtype::bool_:
-        launch_whole_tensor<unsigned char, unsigned char, ops::MinF, unsigned char>(in, out);
+        launch_axis_with_idx<unsigned char, Op, true>(in, &vals, idx, axis);
         break;
     case dtype::bfloat16:
-        throw DTypeError("ctorch::min: bfloat16 reductions are not supported");
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
     }
+}
+
+void max_val_idx_cuda(const Tensor& in, Tensor& vals, Tensor& idx, int axis) {
+    maxmin_with_idx_cuda_dispatch<ops::MaxF>(in, vals, idx, axis, "max");
+}
+void min_val_idx_cuda(const Tensor& in, Tensor& vals, Tensor& idx, int axis) {
+    maxmin_with_idx_cuda_dispatch<ops::MinF>(in, vals, idx, axis, "min");
+}
+
+template <class Op>
+void argmaxmin_cuda_dispatch(const Tensor& in, Tensor& idx, int axis, const char* name) {
+    switch (in.dtype()) {
+    case dtype::float32:
+        launch_axis_with_idx<float, Op, false>(in, nullptr, idx, axis);
+        break;
+    case dtype::float64:
+        launch_axis_with_idx<double, Op, false>(in, nullptr, idx, axis);
+        break;
+    case dtype::int32:
+        launch_axis_with_idx<std::int32_t, Op, false>(in, nullptr, idx, axis);
+        break;
+    case dtype::int64:
+        launch_axis_with_idx<std::int64_t, Op, false>(in, nullptr, idx, axis);
+        break;
+    case dtype::bool_:
+        launch_axis_with_idx<unsigned char, Op, false>(in, nullptr, idx, axis);
+        break;
+    case dtype::bfloat16:
+        throw DTypeError(std::string("ctorch::") + name +
+                         ": bfloat16 reductions are not "
+                         "supported");
+    }
+}
+
+void argmax_cuda(const Tensor& in, Tensor& idx, int axis) {
+    argmaxmin_cuda_dispatch<ops::MaxF>(in, idx, axis, "argmax");
+}
+void argmin_cuda(const Tensor& in, Tensor& idx, int axis) {
+    argmaxmin_cuda_dispatch<ops::MinF>(in, idx, axis, "argmin");
 }
 
 } // namespace
@@ -375,8 +592,10 @@ extern "C" void ctorch_register_cuda_reduction_ops() {
     dispatch::register_op<op::MeanOp>(Device::Kind::CUDA, &mean_cuda);
     dispatch::register_op<op::MaxValOp>(Device::Kind::CUDA, &max_val_cuda);
     dispatch::register_op<op::MinValOp>(Device::Kind::CUDA, &min_val_cuda);
-    // MaxValIdxOp / MinValIdxOp / ArgmaxOp / ArgminOp are wired in
-    // commit 5 alongside the axis-reduction kernels.
+    dispatch::register_op<op::MaxValIdxOp>(Device::Kind::CUDA, &max_val_idx_cuda);
+    dispatch::register_op<op::MinValIdxOp>(Device::Kind::CUDA, &min_val_idx_cuda);
+    dispatch::register_op<op::ArgmaxOp>(Device::Kind::CUDA, &argmax_cuda);
+    dispatch::register_op<op::ArgminOp>(Device::Kind::CUDA, &argmin_cuda);
 }
 
 } // namespace ctorch
