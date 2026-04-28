@@ -24,3 +24,11 @@ ctorch_add_test(unary_parity_test
 target_compile_definitions(unary_parity_test
   PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
 )
+
+ctorch_add_test(reduction_parity_test
+  SOURCES reduction_parity_test.cpp
+  LIBS    ctorch_parity_support
+)
+target_compile_definitions(reduction_parity_test
+  PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
+)

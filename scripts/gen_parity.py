@@ -108,6 +108,146 @@ UNARY_OPS = {
 }
 
 
+# ---- reduction catalogs ----------------------------------------------
+
+# (op_name, dtype, shape, dims, keepdim) — `dims=None` means whole-tensor.
+SUM_LIKE_CASES = [
+    ("sum", np.float32, (3, 4), None, False),
+    ("sum", np.float32, (3, 4), (1,), False),
+    ("sum", np.float32, (3, 4), (1,), True),
+    ("sum", np.float32, (2, 3, 4), (0, 2), False),
+    ("sum", np.float64, (8,), None, False),
+    ("sum", np.int32, (4, 4), None, False),  # int -> int64
+    ("sum", np.int32, (3, 4), (0,), False),
+    ("mean", np.float32, (3, 4), (1,), False),
+    ("mean", np.float64, (5,), None, False),
+    ("mean", np.float32, (2, 3, 4), (0, 2), True),
+    ("prod", np.float32, (3,), None, False),
+    ("prod", np.int32, (4,), None, False),  # int -> int64
+    ("prod", np.float32, (2, 3), (1,), False),
+]
+
+# Multi-axis or whole-tensor max/min, values only.
+MAX_MIN_VALUE_CASES = [
+    ("max", np.float32, (4,), None, False),
+    ("max", np.float32, (3, 4), (1,), False),
+    ("max", np.int32, (3, 4), (0,), True),
+    ("min", np.float32, (3, 4), (0,), True),
+    ("min", np.int64, (3, 4), None, False),
+]
+
+# Single-axis max/min returning values + indices.
+MAX_MIN_IDX_CASES = [
+    # (op, dtype, shape, axis, keepdim)
+    ("max", np.float32, (3, 4), 1, False),
+    ("min", np.int32, (3, 2), 0, False),
+    ("max", np.float32, (2, 3, 4), -1, True),
+]
+
+# Single-axis argmax / argmin.
+ARG_CASES = [
+    ("argmax", np.float32, (3, 4), 1, False),
+    ("argmin", np.int64, (5,), 0, False),
+    # Tied input locks in the "first occurrence wins" rule.
+    ("argmax", np.float32, (5,), 0, False, "tied"),
+]
+
+
+def dim_tag(dims):
+    if dims is None:
+        return "dimsAll"
+    if isinstance(dims, int):
+        sign = "n" if dims < 0 else ""
+        return f"dim{sign}{abs(dims)}"
+    return "dims" + "_".join(("n" + str(abs(d))) if d < 0 else str(d) for d in dims)
+
+
+def kd_tag(keepdim):
+    return "kd1" if keepdim else "kd0"
+
+
+def reduction_input(shape, dt, suffix=None):
+    if suffix == "tied":
+        # Specific tied-value sequence: argmax should return index 1.
+        return np.array([1.0, 3.0, 3.0, 2.0, 3.0], dtype=dt)
+    return random_input(shape, dt)
+
+
+def emit_sum_like(out_dir):
+    written = 0
+    for op_name, dt, shape, dims, keepdim in SUM_LIKE_CASES:
+        x = reduction_input(shape, dt)
+        if op_name == "sum":
+            ref = np.sum(x, axis=dims, keepdims=keepdim)
+            if np.issubdtype(dt, np.integer) or dt == np.bool_:
+                ref = ref.astype(np.int64)
+        elif op_name == "mean":
+            # Mean only runs on float per ctorch's API.
+            ref = np.mean(x, axis=dims, keepdims=keepdim).astype(dt)
+        elif op_name == "prod":
+            ref = np.prod(x, axis=dims, keepdims=keepdim)
+            if np.issubdtype(dt, np.integer) or dt == np.bool_:
+                ref = ref.astype(np.int64)
+        else:
+            raise ValueError(f"unknown sum-like op: {op_name}")
+        prefix = f"{op_name}_{np.dtype(dt).name}_{shape_tag(shape)}_{dim_tag(dims)}_{kd_tag(keepdim)}"
+        np.save(os.path.join(out_dir, prefix + "_in.npy"), x, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref, allow_pickle=False)
+        written += 2
+    return written
+
+
+def emit_max_min_values(out_dir):
+    written = 0
+    for op_name, dt, shape, dims, keepdim in MAX_MIN_VALUE_CASES:
+        x = reduction_input(shape, dt)
+        ref = (np.max if op_name == "max" else np.min)(x, axis=dims, keepdims=keepdim)
+        prefix = f"{op_name}val_{np.dtype(dt).name}_{shape_tag(shape)}_{dim_tag(dims)}_{kd_tag(keepdim)}"
+        np.save(os.path.join(out_dir, prefix + "_in.npy"), x, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref, allow_pickle=False)
+        written += 2
+    return written
+
+
+def emit_max_min_idx(out_dir):
+    written = 0
+    for op_name, dt, shape, axis, keepdim in MAX_MIN_IDX_CASES:
+        x = reduction_input(shape, dt)
+        if op_name == "max":
+            ref_val = np.max(x, axis=axis, keepdims=keepdim)
+            ref_idx = np.argmax(x, axis=axis, keepdims=keepdim).astype(np.int64)
+        else:
+            ref_val = np.min(x, axis=axis, keepdims=keepdim)
+            ref_idx = np.argmin(x, axis=axis, keepdims=keepdim).astype(np.int64)
+        prefix = f"{op_name}idx_{np.dtype(dt).name}_{shape_tag(shape)}_{dim_tag(axis)}_{kd_tag(keepdim)}"
+        np.save(os.path.join(out_dir, prefix + "_in.npy"), x, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref_val, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref_idx.npy"), ref_idx, allow_pickle=False)
+        written += 3
+    return written
+
+
+def emit_arg(out_dir):
+    written = 0
+    for case in ARG_CASES:
+        op_name, dt, shape, axis, keepdim = case[:5]
+        suffix = case[5] if len(case) > 5 else None
+        x = reduction_input(shape, dt, suffix=suffix)
+        if op_name == "argmax":
+            ref = np.argmax(x, axis=axis, keepdims=keepdim).astype(np.int64)
+        else:
+            ref = np.argmin(x, axis=axis, keepdims=keepdim).astype(np.int64)
+        suffix_tag = f"_{suffix}" if suffix is not None else ""
+        prefix = (
+            f"{op_name}_{np.dtype(dt).name}_{shape_tag(shape)}_{dim_tag(axis)}_"
+            f"{kd_tag(keepdim)}{suffix_tag}"
+        )
+        np.save(os.path.join(out_dir, prefix + "_in.npy"), x, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref, allow_pickle=False)
+        written += 2
+    return written
+
+
 def emit_binary(out_dir: str) -> int:
     written = 0
     for op_name, dt, shape_a, shape_b in BINARY_CASES:
@@ -146,7 +286,12 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
     n_bin = emit_binary(args.out)
     n_un = emit_unary(args.out)
-    print(f"wrote {n_bin + n_un} files to {args.out}")
+    n_sum_like = emit_sum_like(args.out)
+    n_mm_val = emit_max_min_values(args.out)
+    n_mm_idx = emit_max_min_idx(args.out)
+    n_arg = emit_arg(args.out)
+    total = n_bin + n_un + n_sum_like + n_mm_val + n_mm_idx + n_arg
+    print(f"wrote {total} files to {args.out}")
 
 
 if __name__ == "__main__":
