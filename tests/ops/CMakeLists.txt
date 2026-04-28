@@ -32,6 +32,11 @@ ctorch_add_test(reduction_axis_test
 # reduction_axis_test reaches into private headers under src/ops/.
 target_include_directories(reduction_axis_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
+ctorch_add_test(reduction_value_test
+  SOURCES reduction_value_test.cpp
+  LIBS    ctorch_core
+)
+
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test
     SOURCES cuda_smoke_test.cpp

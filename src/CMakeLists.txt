@@ -12,6 +12,8 @@ add_library(ctorch_core STATIC
   ops/binary_ops_cpu.cpp
   ops/unary_ops_cpu.cpp
   ops/reduction.cpp
+  ops/reduction_iter.cpp
+  ops/reduction_ops_cpu.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )
