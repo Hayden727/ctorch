@@ -21,7 +21,12 @@ target_include_directories(ctorch_core
 )
 
 target_compile_features(ctorch_core PUBLIC cxx_std_20)
-target_compile_options(ctorch_core PRIVATE ${CTORCH_WARNINGS})
+# CXX-only flags go through CTORCH_WARNINGS verbatim. CUDA flags use the
+# -Xcompiler= forwarding form so nvcc doesn't misinterpret bare -Werror.
+target_compile_options(ctorch_core PRIVATE
+  $<$<COMPILE_LANGUAGE:CXX>:${CTORCH_WARNINGS}>
+  $<$<COMPILE_LANGUAGE:CUDA>:${CTORCH_CUDA_WARNINGS}>
+)
 
 if(CTORCH_CUDA)
   target_sources(ctorch_core PRIVATE
