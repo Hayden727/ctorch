@@ -99,19 +99,26 @@ The project is staged into seven phases. Each phase is intended to be picked up 
 order &mdash; later phases assume the contracts established by earlier ones (Tensor
 &rarr; Autograd &rarr; Module &rarr; Compiler).
 
-**Phase 0 &mdash; Foundation**
-- [ ] Project skeleton: CMake (&ge; 3.20), GoogleTest harness, `clang-format`, `clang-tidy`, CI
-- [ ] `Device` abstraction (`CPU`, `CUDA`) and per-device dispatch table
-- [ ] `Storage` &amp; `Tensor` core: dtype, shape, stride, contiguous/view semantics
-- [ ] Allocators: CPU pool allocator + CUDA caching allocator
-- [ ] CUDA toolchain integration: `nvcc` driver, host/device compilation, stream wrapper
+**Phase 0 &mdash; Foundation** ✅ shipped
+- [x] Project skeleton: CMake (&ge; 3.20), GoogleTest harness, `clang-format`, `clang-tidy`, CI ([#1], [#5])
+- [x] `Device` abstraction (`CPU`, `CUDA`) and per-device dispatch table ([#2])
+- [x] `Storage` &amp; `Tensor` core: dtype, shape, stride, contiguous/view semantics ([#2])
+- [x] Allocators: CPU pool allocator + CUDA caching allocator ([#2])
+- [x] CUDA toolchain integration: `nvcc` driver, host/device compilation, stream wrapper ([#2])
 
 **Phase 1 &mdash; Eager Tensor Engine** (CPU + CUDA in parallel)
-- [ ] Element-wise ops with broadcasting on both backends (`add`, `sub`, `mul`, `div`, `relu`, &hellip;)
-- [ ] Reductions (`sum`, `mean`, `max`, `argmax`) and indexing/slicing
+- [x] Element-wise ops with broadcasting on both backends (`add`, `sub`, `mul`, `div`, `relu`, &hellip;) ([#3])
+- [x] Type promotion (`promote_types`) and `to(device)` host&harr;device transfer ([#2], [#3])
+- [x] Numerical-parity test harness: NPY fixtures + tolerance table ([#3])
+- [ ] Reductions (`sum`, `mean`, `max`, `argmax`) with axis &amp; keepdim
+- [ ] Indexing &amp; slicing: `slice`, `select`, `narrow`, advanced indexing
 - [ ] Linear algebra: `matmul`/`transpose` &rarr; OpenBLAS (CPU) and cuBLAS (CUDA)
-- [ ] Type promotion, dtype casting, `to(device)` host&harr;device transfer
-- [ ] Numerical-parity tests: every op matches a CPU reference within tolerance
+- [ ] Public `Tensor::to(dtype)` and CUDA dtype-cast kernel
+
+[#1]: https://github.com/Hayden727/ctorch/issues/1
+[#2]: https://github.com/Hayden727/ctorch/issues/2
+[#3]: https://github.com/Hayden727/ctorch/issues/3
+[#5]: https://github.com/Hayden727/ctorch/issues/5
 
 **Phase 2 &mdash; Autograd**
 - [ ] Reverse-mode AD: `Tensor::requires_grad`, dynamic tape, device-agnostic
