@@ -42,6 +42,14 @@ ctorch_add_test(reduction_dtype_test
   LIBS    ctorch_core
 )
 
+ctorch_add_test(reduction_alloc_test
+  SOURCES reduction_alloc_test.cpp
+  LIBS    ctorch_core
+)
+# reduction_alloc_test reaches into the private ReductionAxes header
+# and the CountingAllocator wrapper, both under src/.
+target_include_directories(reduction_alloc_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test
     SOURCES cuda_smoke_test.cpp
