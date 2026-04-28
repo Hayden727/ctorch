@@ -29,14 +29,37 @@ namespace ctorch::ops {
 
 // ---------- binary ----------
 
+// Signed integer overflow is UB in C++ (e.g. INT_MAX + 1), so add/sub/mul
+// route signed integer paths through their unsigned representation to get
+// well-defined two's-complement wraparound — what users expect from tensor
+// integer math, and what PyTorch does. Floating-point and unsigned paths
+// are unchanged. DivF doesn't need the same treatment because the front
+// door rejects integer division entirely (see binary_ops_cpu.cpp).
+namespace detail {
+template <class Op, class T> CTORCH_OP_FN T binary_arith_signed_safe(T a, T b, Op op) {
+    if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+        using U = std::make_unsigned_t<T>;
+        return static_cast<T>(op(static_cast<U>(a), static_cast<U>(b)));
+    } else {
+        return op(a, b);
+    }
+}
+} // namespace detail
+
 struct AddF {
-    template <class T> CTORCH_OP_FN T operator()(T a, T b) const { return a + b; }
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x + y; });
+    }
 };
 struct SubF {
-    template <class T> CTORCH_OP_FN T operator()(T a, T b) const { return a - b; }
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x - y; });
+    }
 };
 struct MulF {
-    template <class T> CTORCH_OP_FN T operator()(T a, T b) const { return a * b; }
+    template <class T> CTORCH_OP_FN T operator()(T a, T b) const {
+        return detail::binary_arith_signed_safe(a, b, [](auto x, auto y) { return x * y; });
+    }
 };
 struct DivF {
     template <class T> CTORCH_OP_FN T operator()(T a, T b) const { return a / b; }

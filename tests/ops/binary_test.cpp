@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using ctorch::add;
@@ -178,6 +179,25 @@ TEST(BinaryAdd, HighRankTensorWorks) {
     auto c = add(a, b);
     EXPECT_EQ(c.shape(), std::vector<std::int64_t>({1, 1, 1, 1, 1, 1, 1, 1, 4}));
     EXPECT_EQ(read_all<float>(c), (std::vector<float>{11.0f, 22.0f, 33.0f, 44.0f}));
+}
+
+TEST(BinaryAdd, SignedIntegerOverflowWrapsCleanly) {
+    // Signed integer overflow on raw `+`/`-`/`*` is UB; the functors
+    // must go through unsigned arithmetic so we get well-defined
+    // two's-complement wraparound (matches PyTorch).
+    constexpr auto kI32Max = std::numeric_limits<std::int32_t>::max();
+    constexpr auto kI32Min = std::numeric_limits<std::int32_t>::min();
+    auto big = make_filled<std::int32_t>({1}, dtype::int32, {kI32Max});
+    auto one = make_filled<std::int32_t>({1}, dtype::int32, {1});
+    EXPECT_EQ(read_all<std::int32_t>(add(big, one))[0], kI32Min);
+
+    auto neg_big = make_filled<std::int32_t>({1}, dtype::int32, {kI32Min});
+    EXPECT_EQ(read_all<std::int32_t>(sub(neg_big, one))[0], kI32Max);
+
+    auto half = make_filled<std::int32_t>({1}, dtype::int32, {1 << 30});
+    auto four = make_filled<std::int32_t>({1}, dtype::int32, {4});
+    // (1<<30) * 4 = 1<<32 → wraps to 0 in 32-bit two's complement.
+    EXPECT_EQ(read_all<std::int32_t>(mul(half, four))[0], 0);
 }
 
 TEST(BinaryDiv, RejectsIntegerDivision) {
