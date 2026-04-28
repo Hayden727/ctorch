@@ -49,7 +49,22 @@ class Allocator {
 /// CUDA allocators are routed by `Device::index` so each ordinal owns a
 /// distinct caching pool. This matters under multi-GPU: a tensor tagged
 /// `Device::cuda(1)` must be backed by memory that lives on device 1.
+///
+/// If a caller has installed an override via `set_default_allocator`, that
+/// override is returned instead. CUDA overrides are keyed only by
+/// `Device::Kind`, not by ordinal — every CUDA device shares one slot.
 Allocator* default_allocator(Device device);
+
+/// Installs \p allocator as the override returned by `default_allocator`
+/// for \p device's kind, and returns the previous override (or `nullptr`
+/// if none). Passing `nullptr` removes any installed override and
+/// restores the built-in pool.
+///
+/// The installed allocator must outlive every Storage that may be backed
+/// by it; this hook is intended for tests and instrumentation rather than
+/// as a stable user-facing API. The lookup is a single relaxed atomic
+/// load so the no-override hot path is unaffected.
+Allocator* set_default_allocator(Device device, Allocator* allocator);
 
 } // namespace ctorch
 

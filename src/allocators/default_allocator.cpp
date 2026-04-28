@@ -18,6 +18,7 @@
 
 #include "allocators/cpu_pool.h"
 
+#include <atomic>
 #include <stdexcept>
 
 #if defined(CTORCH_HAS_CUDA)
@@ -30,6 +31,23 @@
 #endif
 
 namespace ctorch {
+
+namespace {
+
+/// Per-Kind override slot. Loaded with relaxed semantics on every
+/// `default_allocator` call; when no override is installed the value is
+/// `nullptr` and the call falls through to the built-in pool. The slot
+/// is keyed only by `Device::Kind` because tests overwhelmingly want to
+/// instrument either "the CPU pool" or "every CUDA pool" rather than a
+/// single device ordinal — and routing CUDA overrides per-ordinal would
+/// either need a bounded ordinal table or a lookup mutex on the hot
+/// path.
+std::atomic<Allocator*>& override_slot(Device::Kind kind) {
+    static std::atomic<Allocator*> slots[kNumDeviceKinds]{};
+    return slots[static_cast<std::size_t>(kind)];
+}
+
+} // namespace
 
 #if defined(CTORCH_HAS_CUDA)
 namespace {
@@ -82,6 +100,9 @@ detail::CudaCachingAllocator* cuda_allocator_for(int index) {
 #endif // CTORCH_HAS_CUDA
 
 Allocator* default_allocator(Device device) {
+    if (auto* override = override_slot(device.kind).load(std::memory_order_relaxed)) {
+        return override;
+    }
     switch (device.kind) {
     case Device::Kind::CPU: {
         static detail::CpuPoolAllocator cpu;
@@ -97,6 +118,10 @@ Allocator* default_allocator(Device device) {
     }
     }
     throw std::invalid_argument("ctorch::default_allocator: unknown Device::Kind");
+}
+
+Allocator* set_default_allocator(Device device, Allocator* allocator) {
+    return override_slot(device.kind).exchange(allocator, std::memory_order_acq_rel);
 }
 
 } // namespace ctorch
