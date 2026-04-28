@@ -146,6 +146,40 @@ TEST(BinaryAdd, RejectsBoolArithmetic) {
     EXPECT_THROW(add(a, b), DTypeError);
 }
 
+TEST(BinaryAdd, RejectsMixedBoolAndNumeric) {
+    // The bool-rejection contract documented in docs/ops.md must trigger
+    // even when the *promoted* output dtype is numeric; otherwise the
+    // bool operand silently widens to 0/1 and the user gets a numeric
+    // result instead of the expected DTypeError.
+    auto bool_lhs = make_filled<bool>({2}, dtype::bool_, {true, false});
+    auto int_rhs = make_filled<std::int32_t>({2}, dtype::int32, {3, 4});
+    EXPECT_THROW(add(bool_lhs, int_rhs), DTypeError);
+    EXPECT_THROW(add(int_rhs, bool_lhs), DTypeError);
+    auto float_rhs = make_filled<float>({2}, dtype::float32, {0.5f, 0.25f});
+    EXPECT_THROW(mul(bool_lhs, float_rhs), DTypeError);
+}
+
+TEST(BinaryAdd, HighRankTensorWorks) {
+    // The fixed-size indexer caps at kMaxRank; ensure rank-9 (with most
+    // dims being size 1) still goes through the strided path without
+    // throwing ShapeError.
+    Tensor a({1, 1, 1, 1, 1, 1, 1, 1, 4}, dtype::float32, Device::cpu());
+    auto* ap = static_cast<float*>(a.storage().data());
+    ap[0] = 1.0f;
+    ap[1] = 2.0f;
+    ap[2] = 3.0f;
+    ap[3] = 4.0f;
+    Tensor b({4}, dtype::float32, Device::cpu());
+    auto* bp = static_cast<float*>(b.storage().data());
+    bp[0] = 10.0f;
+    bp[1] = 20.0f;
+    bp[2] = 30.0f;
+    bp[3] = 40.0f;
+    auto c = add(a, b);
+    EXPECT_EQ(c.shape(), std::vector<std::int64_t>({1, 1, 1, 1, 1, 1, 1, 1, 4}));
+    EXPECT_EQ(read_all<float>(c), (std::vector<float>{11.0f, 22.0f, 33.0f, 44.0f}));
+}
+
 TEST(BinaryDiv, RejectsIntegerDivision) {
     auto a = make_filled<std::int32_t>({2}, dtype::int32, {6, 8});
     auto b = make_filled<std::int32_t>({2}, dtype::int32, {2, 4});

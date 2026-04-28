@@ -27,9 +27,12 @@
 
 namespace ctorch::ops {
 
-/// Maximum number of dimensions handled by the fixed-size iterator. Eight
-/// matches the practical bound used by PyTorch's TensorIterator fast path.
-constexpr int kMaxRank = 8;
+/// Maximum number of dimensions handled by the fixed-size iterator. The
+/// upstream Tensor API accepts arbitrary rank, so this bound has to cover
+/// any reasonable user input — 16 is generous for ML workloads (PyTorch's
+/// TensorIterator caps at 16 too) while keeping each IndexerCtx well under
+/// the 4 KB CUDA kernel-parameter limit (4 strides × 16 × 8 bytes ≈ 520 B).
+constexpr int kMaxRank = 16;
 
 /// Strided iteration context for an element-wise binary op. Strides are in
 /// **elements** (not bytes); `out_stride` is the contiguous row-major

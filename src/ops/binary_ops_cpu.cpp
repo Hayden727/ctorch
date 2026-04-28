@@ -182,8 +182,22 @@ void check_devices_match(const Tensor& a, const Tensor& b, const char* op) {
     }
 }
 
+// Binary arithmetic on bool is intentionally unsupported — see docs/ops.md.
+// We reject it at the front door before promotion so e.g. add(bool, int32)
+// fails with a DTypeError instead of being silently widened to int32. The
+// kernel-side guard alone wouldn't catch this case because the promoted
+// output dtype is the *non-bool* operand's dtype.
+void check_no_bool(const Tensor& a, const Tensor& b, const char* op) {
+    if (a.dtype() == dtype::bool_ || b.dtype() == dtype::bool_) {
+        throw DTypeError(std::string("ctorch::") + op +
+                         ": binary arithmetic on bool is not supported "
+                         "(cast operands to int32/float first)");
+    }
+}
+
 template <class OpKey> Tensor binary_front(const Tensor& a, const Tensor& b, const char* name) {
     check_devices_match(a, b, name);
+    check_no_bool(a, b, name);
     const auto promoted = promote_types(a.dtype(), b.dtype());
     Tensor a2 = maybe_cast(a, promoted);
     Tensor b2 = maybe_cast(b, promoted);
@@ -195,6 +209,7 @@ template <class OpKey> Tensor binary_front(const Tensor& a, const Tensor& b, con
 
 template <class OpKey> Tensor& binary_inplace_front(Tensor& a, const Tensor& b, const char* name) {
     check_devices_match(a, b, name);
+    check_no_bool(a, b, name);
     const auto promoted = promote_types(a.dtype(), b.dtype());
     if (a.dtype() != promoted) {
         throw DTypeError(std::string("ctorch::") + name +
