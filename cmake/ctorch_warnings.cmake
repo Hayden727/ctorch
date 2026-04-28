@@ -21,9 +21,15 @@ endif()
 # option 'Werror'"). Forward host warnings explicitly via -Xcompiler so
 # they reach the host backend without nvcc trying to interpret them.
 #
+# We deliberately drop -Wpedantic from the CUDA forwarding: nvcc emits
+# intermediate .cudafe1.cpp files that use GCC-style line directives,
+# which -Wpedantic flags as "style of line directive is a GCC extension"
+# — under -Werror that breaks every .cu TU. Host C++ TUs still get
+# -Wpedantic via CTORCH_WARNINGS.
+#
 # Both the .cu sources we ship and any future .cu code added under
 # CTORCH_CUDA pick this up via $<$<COMPILE_LANGUAGE:CUDA>:${CTORCH_CUDA_WARNINGS}>.
-set(CTORCH_CUDA_WARNINGS "-Xcompiler=-Wall,-Wextra,-Wpedantic,-Wno-unused-parameter,-fopenmp-simd")
+set(CTORCH_CUDA_WARNINGS "-Xcompiler=-Wall,-Wextra,-Wno-unused-parameter,-fopenmp-simd")
 
 if(CTORCH_WERROR)
   list(APPEND CTORCH_CUDA_WARNINGS "-Xcompiler=-Werror")
