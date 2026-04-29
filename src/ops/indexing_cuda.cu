@@ -108,8 +108,7 @@ __global__ void validate_indices_kernel(const I* idx_base, std::int64_t idx_stri
 template <class T>
 __global__ void index_select_gather_kernel(const T* src_base, T* out_base,
                                            const std::int64_t* resolved, IndexSelectPlan plan) {
-    const std::int64_t lin =
-        static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const std::int64_t lin = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (lin >= plan.total_out) {
         return;
     }
@@ -135,6 +134,15 @@ void launch_index_select(const Tensor& src, int dim, const Tensor& indices, Tens
 
     const auto& src_shape = src.shape();
     const auto& src_stride = src.stride();
+    if (src_shape.size() > ops::kMaxRank) {
+        // The kernel passes IndexSelectPlan by value; its fixed-size arrays
+        // can't accommodate ranks above kMaxRank. The CPU backend still
+        // works for arbitrary rank, so this guard lives only on the CUDA
+        // path (matches the rest of the CUDA op family).
+        throw ShapeError("ctorch::index_select: CUDA backend does not support tensor rank > " +
+                         std::to_string(ops::kMaxRank) + " (got " +
+                         std::to_string(src_shape.size()) + ")");
+    }
     const int rank = static_cast<int>(src_shape.size());
     const std::int64_t src_dim_size = src_shape[static_cast<std::size_t>(dim)];
     const std::int64_t src_dim_stride = src_stride[static_cast<std::size_t>(dim)];
@@ -167,8 +175,7 @@ void launch_index_select(const Tensor& src, int dim, const Tensor& indices, Tens
     }
 
     const std::int64_t idx_stride_elems = indices.stride().empty() ? 0 : indices.stride()[0];
-    const auto* idx_base =
-        static_cast<const I*>(indices.storage().data()) + indices.offset();
+    const auto* idx_base = static_cast<const I*>(indices.storage().data()) + indices.offset();
 
     const int validate_blocks = static_cast<int>((n_indices + kBlockSize - 1) / kBlockSize);
     validate_indices_kernel<I><<<validate_blocks, kBlockSize>>>(

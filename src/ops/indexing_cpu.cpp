@@ -42,8 +42,7 @@ void run_index_select_cpu(const Tensor& src, int dim, const Tensor& indices, Ten
     const std::int64_t src_dim_stride = src_stride[static_cast<std::size_t>(dim)];
 
     const std::int64_t n_indices = indices.numel();
-    const std::int64_t idx_stride =
-        indices.shape().empty() ? 0 : indices.stride()[0];
+    const std::int64_t idx_stride = indices.shape().empty() ? 0 : indices.stride()[0];
     const auto* idx_base = static_cast<const I*>(indices.storage().data()) + indices.offset();
 
     const auto* src_base = static_cast<const T*>(src.storage().data()) + src.offset();

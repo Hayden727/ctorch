@@ -25,8 +25,8 @@
 #include <vector>
 
 using ctorch::Device;
-using ctorch::DTypeError;
 using ctorch::dtype;
+using ctorch::DTypeError;
 using ctorch::index_select;
 using ctorch::ShapeError;
 using ctorch::Tensor;

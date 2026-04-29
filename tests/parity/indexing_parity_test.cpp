@@ -82,12 +82,9 @@ struct IndexSelectCase {
 };
 
 constexpr IndexSelectCase kCases[] = {
-    {"index_select_float32_4x3_dim0_int64_n4", 0},
-    {"index_select_float32_3x4_dim1_int32_n3", 1},
-    {"index_select_float64_5_dim0_int64_n3", 0},
-    {"index_select_int32_3x4_dim0_int64_n3", 0},
-    {"index_select_int64_2x3x4_dim2_int32_n2", 2},
-    {"index_select_float32_2x3x4_dim1_int64_n3", 1},
+    {"index_select_float32_4x3_dim0_int64_n4", 0}, {"index_select_float32_3x4_dim1_int32_n3", 1},
+    {"index_select_float64_5_dim0_int64_n3", 0},   {"index_select_int32_3x4_dim0_int64_n3", 0},
+    {"index_select_int64_2x3x4_dim2_int32_n2", 2}, {"index_select_float32_2x3x4_dim1_int64_n3", 1},
 };
 
 class IndexSelectParity : public ::testing::TestWithParam<IndexSelectCase> {};

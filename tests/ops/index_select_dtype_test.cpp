@@ -22,10 +22,11 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <vector>
 
 using ctorch::Device;
-using ctorch::DTypeError;
 using ctorch::dtype;
+using ctorch::DTypeError;
 using ctorch::index_select;
 using ctorch::ShapeError;
 using ctorch::Tensor;
@@ -81,4 +82,15 @@ TEST(IndexSelectDType, BFloat16SourceRejected) {
     Tensor src({3}, dtype::bfloat16, Device::cpu());
     Tensor idx({1}, dtype::int64, Device::cpu());
     EXPECT_THROW((void)index_select(src, 0, idx), DTypeError);
+}
+
+TEST(IndexSelectDType, CpuAcceptsRankAboveKMaxRank) {
+    // The CUDA plan caps shape/stride at kMaxRank=16, but the CPU backend
+    // uses std::vector-backed coords and handles arbitrary rank. Guard
+    // against accidentally re-introducing a shared front-door rank cap.
+    std::vector<std::int64_t> shape(17, 1);
+    Tensor src(shape, dtype::float32, Device::cpu());
+    Tensor idx({1}, dtype::int64, Device::cpu());
+    Tensor out = index_select(src, 0, idx);
+    EXPECT_EQ(out.shape().size(), 17u);
 }

@@ -28,9 +28,7 @@ using ctorch::Tensor;
 
 namespace {
 
-float* fdata(Tensor& t) {
-    return static_cast<float*>(t.storage().data()) + t.offset();
-}
+float* fdata(Tensor& t) { return static_cast<float*>(t.storage().data()) + t.offset(); }
 
 } // namespace
 
