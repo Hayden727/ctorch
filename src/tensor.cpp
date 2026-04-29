@@ -302,7 +302,11 @@ Tensor Tensor::slice(int dim, std::int64_t start, std::int64_t end, std::int64_t
     if (end > size) {
         end = size;
     }
-    const std::int64_t length = (end - start + step - 1) / step;
+    // Overflow-safe ceil-div: forming `(span + step - 1)` would overflow
+    // signed-64 when `step` is near INT64_MAX. After clamping `span` is
+    // non-negative, so the branchy form below stays in-range.
+    const std::int64_t span = end - start;
+    const std::int64_t length = span == 0 ? 0 : (span - 1) / step + 1;
 
     auto out = std::make_shared<detail::TensorImpl>();
     out->storage = impl_->storage;
@@ -369,10 +373,13 @@ Tensor Tensor::narrow(int dim, std::int64_t start, std::int64_t length) const {
                          std::to_string(size));
     }
     const std::int64_t adj_start = start < 0 ? start + size : start;
-    if (adj_start < 0 || adj_start + length > size) {
-        throw ShapeError("ctorch::Tensor::narrow: range [" + std::to_string(start) + ", " +
-                         std::to_string(start + length) + ") out of bounds for dim " +
-                         std::to_string(d) + " of size " + std::to_string(size));
+    // Subtraction-based bound check: `adj_start + length` could overflow
+    // signed-64 when `length` is near INT64_MAX. `adj_start` is already
+    // clamped to `[0, size]` so `size - adj_start` stays non-negative.
+    if (length > size - adj_start) {
+        throw ShapeError("ctorch::Tensor::narrow: start " + std::to_string(start) + " + length " +
+                         std::to_string(length) + " out of bounds for dim " + std::to_string(d) +
+                         " of size " + std::to_string(size));
     }
     return slice(d, adj_start, adj_start + length, 1);
 }

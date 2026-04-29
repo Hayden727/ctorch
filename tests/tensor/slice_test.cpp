@@ -188,6 +188,15 @@ TEST(TensorSlice, ExtremeNegativeBoundsClampWithoutOverflow) {
     EXPECT_EQ(s.shape(), std::vector<std::int64_t>({4}));
 }
 
+TEST(TensorSlice, HugeStepLengthComputationDoesNotOverflow) {
+    // With step == INT64_MAX the original `(span + step - 1)` ceil-div
+    // formula would overflow signed-64. Result should still be a valid
+    // length-1 slice of the first element.
+    Tensor t({4}, dtype::int32, Device::cpu());
+    Tensor s = t.slice(0, 0, 4, std::numeric_limits<std::int64_t>::max());
+    EXPECT_EQ(s.shape(), std::vector<std::int64_t>({1}));
+}
+
 TEST(TensorNarrow, IsSugarForSliceWithStepOne) {
     Tensor t({5}, dtype::int32, Device::cpu());
     fill_iota_int32(t);
@@ -222,6 +231,15 @@ TEST(TensorNarrow, OutOfRangeRangeThrows) {
 TEST(TensorNarrow, Int64MinStartThrowsWithoutOverflow) {
     Tensor t({4}, dtype::int32, Device::cpu());
     EXPECT_THROW((void)t.narrow(0, std::numeric_limits<std::int64_t>::min(), 1), ShapeError);
+}
+
+TEST(TensorNarrow, HugeLengthThrowsWithoutAdditiveOverflow) {
+    // `adj_start + length > size` would overflow signed-64 for length
+    // near INT64_MAX. The subtraction-based check should still surface
+    // the OOB condition as ShapeError.
+    Tensor t({4}, dtype::int32, Device::cpu());
+    EXPECT_THROW((void)t.narrow(0, 0, std::numeric_limits<std::int64_t>::max()), ShapeError);
+    EXPECT_THROW((void)t.narrow(0, 1, std::numeric_limits<std::int64_t>::max()), ShapeError);
 }
 
 TEST(TensorViewOps, StorageUseCountReflectsSharing) {
