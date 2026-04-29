@@ -315,7 +315,11 @@ Tensor Tensor::slice(int dim, std::int64_t start, std::int64_t end, std::int64_t
     out->stride = impl_->stride;
     const std::int64_t old_stride = impl_->stride[static_cast<std::size_t>(d)];
     out->shape[static_cast<std::size_t>(d)] = length;
-    out->stride[static_cast<std::size_t>(d)] = old_stride * step;
+    // Stride only matters when the axis is iterated (length > 1); for
+    // length 0 / 1 the value is unobservable, so collapse it to the
+    // original stride to avoid `old_stride * step` overflowing signed-64
+    // when `step` is near INT64_MAX (e.g. step=INT64_MAX on shape {2,2}).
+    out->stride[static_cast<std::size_t>(d)] = length > 1 ? old_stride * step : old_stride;
     out->offset = impl_->offset + start * old_stride;
     return Tensor{std::move(out)};
 }

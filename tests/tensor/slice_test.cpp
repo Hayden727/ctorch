@@ -197,6 +197,15 @@ TEST(TensorSlice, HugeStepLengthComputationDoesNotOverflow) {
     EXPECT_EQ(s.shape(), std::vector<std::int64_t>({1}));
 }
 
+TEST(TensorSlice, HugeStepStrideMultiplyDoesNotOverflow) {
+    // With step == INT64_MAX on a non-last dim, `old_stride * step` would
+    // overflow signed-64 (here old_stride = 2). Length is 1, so the
+    // stride is unobservable and must not be the overflowing product.
+    Tensor t({2, 2}, dtype::int32, Device::cpu());
+    Tensor s = t.slice(0, 0, 2, std::numeric_limits<std::int64_t>::max());
+    EXPECT_EQ(s.shape(), std::vector<std::int64_t>({1, 2}));
+}
+
 TEST(TensorNarrow, IsSugarForSliceWithStepOne) {
     Tensor t({5}, dtype::int32, Device::cpu());
     fill_iota_int32(t);
