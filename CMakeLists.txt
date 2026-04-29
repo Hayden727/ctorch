@@ -15,6 +15,8 @@ if(CTORCH_CUDA)
   include(cmake/ctorch_cuda.cmake)
 endif()
 
+include(cmake/ctorch_blas.cmake)
+
 add_subdirectory(third_party)
 add_subdirectory(src)
 

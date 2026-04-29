@@ -15,6 +15,10 @@ add_library(ctorch_core STATIC
   ops/reduction_iter.cpp
   ops/reduction_ops_cpu.cpp
   ops/indexing_cpu.cpp
+  ops/matmul.cpp
+  ops/matmul_shape.cpp
+  ops/matmul_cpu.cpp
+  linalg/blas_cpu.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )
@@ -40,7 +44,18 @@ if(CTORCH_CUDA)
     ops/unary_ops_cuda.cu
     ops/reduction_ops_cuda.cu
     ops/indexing_cuda.cu
+    ops/matmul_cuda.cu
+    linalg/blas_cuda.cu
   )
   target_compile_definitions(ctorch_core PUBLIC CTORCH_HAS_CUDA=1)
-  target_link_libraries(ctorch_core PUBLIC CUDA::cudart)
+  target_link_libraries(ctorch_core PUBLIC CUDA::cudart CUDA::cublas)
+endif()
+
+if(CTORCH_BLAS)
+  target_compile_definitions(ctorch_core PRIVATE
+    CTORCH_HAS_BLAS=1
+    "CTORCH_CBLAS_HEADER=<${CTORCH_CBLAS_HEADER}>"
+    ${CTORCH_BLAS_EXTRA_DEFINES}
+  )
+  target_link_libraries(ctorch_core PRIVATE BLAS::BLAS)
 endif()

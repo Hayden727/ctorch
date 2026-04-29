@@ -134,6 +134,17 @@ struct ArgminOp {
     using fn_t = ArgFn;
 };
 
+// ---------- linalg ----------
+
+// `matmul(a, b)`: shapes / dtype / device are fully validated by the
+// front-door, so the kernel just does the GEMM(s). Both inputs and the
+// preallocated output share the promoted dtype.
+using MatmulFn = void (*)(const Tensor& a, const Tensor& b, Tensor& out);
+
+struct MatmulOp {
+    using fn_t = MatmulFn;
+};
+
 // ---------- indexing ----------
 
 // Gather along a single axis. The output tensor is preallocated by the

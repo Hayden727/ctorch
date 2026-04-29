@@ -17,6 +17,7 @@
 #include "ctorch/tensor.h"
 
 #include "ctorch/errors.h"
+#include "ctorch/ops/linalg.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -234,6 +235,44 @@ Tensor Tensor::permute(std::vector<std::int64_t> dims) const {
         out->stride[i] = impl_->stride[src];
     }
     return Tensor(std::move(out));
+}
+
+Tensor transpose(const Tensor& x, int dim0, int dim1) {
+    const int rank = static_cast<int>(x.shape().size());
+    if (rank == 0) {
+        throw ShapeError("ctorch::transpose: cannot transpose a 0-d tensor");
+    }
+    auto normalise = [rank](int d, const char* tag) {
+        const int adj = d < 0 ? d + rank : d;
+        if (adj < 0 || adj >= rank) {
+            throw ShapeError(std::string("ctorch::transpose: ") + tag + " " + std::to_string(d) +
+                             " out of range for tensor of rank " + std::to_string(rank));
+        }
+        return adj;
+    };
+    const int a = normalise(dim0, "dim0");
+    const int b = normalise(dim1, "dim1");
+    if (a == b) {
+        return x;
+    }
+    std::vector<std::int64_t> perm(static_cast<std::size_t>(rank));
+    for (int i = 0; i < rank; ++i) {
+        perm[static_cast<std::size_t>(i)] = i;
+    }
+    std::swap(perm[static_cast<std::size_t>(a)], perm[static_cast<std::size_t>(b)]);
+    return x.permute(std::move(perm));
+}
+
+Tensor Tensor::T() const {
+    if (!impl_) {
+        throw_undefined("T");
+    }
+    if (impl_->shape.size() != 2) {
+        throw ShapeError("ctorch::Tensor::T: requires a 2-D tensor (got rank " +
+                         std::to_string(impl_->shape.size()) +
+                         "); use ctorch::transpose(x, i, j) for arbitrary rank");
+    }
+    return permute({1, 0});
 }
 
 Tensor Tensor::contiguous() const {

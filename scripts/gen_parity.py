@@ -152,6 +152,21 @@ ARG_CASES = [
     ("argmax", np.float32, (5,), 0, False, "tied"),
 ]
 
+# matmul cases: (dtype, a_shape, b_shape).
+# Covers the five PyTorch shape rules plus an asymmetric M/N/K to lock
+# in the cuBLAS column-major transpose trick.
+MATMUL_CASES = [
+    (np.float32, (3,),       (3,)),         # 1-D × 1-D dot
+    (np.float32, (4,),       (4, 3)),       # 1-D × 2-D
+    (np.float32, (3, 4),     (4,)),         # 2-D × 1-D
+    (np.float32, (5, 7),     (7, 11)),      # 2-D × 2-D, asymmetric M/N/K
+    (np.float64, (3, 4),     (4, 5)),       # f64 GEMM
+    (np.float32, (2, 3, 4),  (2, 4, 5)),    # batched 3-D
+    (np.float32, (2, 3, 4),  (4, 5)),       # 3-D × 2-D broadcast on batch
+    (np.float32, (1, 3, 4),  (5, 4, 6)),    # broadcast on leading batch
+]
+
+
 # index_select cases:
 #   (src_dtype, src_shape, dim, indices, idx_dtype)
 INDEX_SELECT_CASES = [
@@ -276,6 +291,20 @@ def emit_binary(out_dir: str) -> int:
     return written
 
 
+def emit_matmul(out_dir: str) -> int:
+    written = 0
+    for dt, a_shape, b_shape in MATMUL_CASES:
+        a = random_input(a_shape, dt)
+        b = random_input(b_shape, dt)
+        ref = np.matmul(a, b)
+        prefix = f"matmul_{np.dtype(dt).name}_{shape_tag(a_shape)}_x_{shape_tag(b_shape)}"
+        np.save(os.path.join(out_dir, prefix + "_a.npy"), a, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_b.npy"), b, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref, allow_pickle=False)
+        written += 3
+    return written
+
+
 def emit_index_select(out_dir: str) -> int:
     written = 0
     for src_dt, src_shape, dim, indices, idx_dt in INDEX_SELECT_CASES:
@@ -320,7 +349,8 @@ def main() -> None:
     n_mm_idx = emit_max_min_idx(args.out)
     n_arg = emit_arg(args.out)
     n_idx = emit_index_select(args.out)
-    total = n_bin + n_un + n_sum_like + n_mm_val + n_mm_idx + n_arg + n_idx
+    n_mm = emit_matmul(args.out)
+    total = n_bin + n_un + n_sum_like + n_mm_val + n_mm_idx + n_arg + n_idx + n_mm
     print(f"wrote {total} files to {args.out}")
 
 

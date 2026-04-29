@@ -60,6 +60,21 @@ ctorch_add_test(index_select_dtype_test
   LIBS    ctorch_core
 )
 
+ctorch_add_test(transpose_test
+  SOURCES transpose_test.cpp
+  LIBS    ctorch_core
+)
+
+ctorch_add_test(matmul_shape_test
+  SOURCES matmul_shape_test.cpp
+  LIBS    ctorch_core
+)
+
+ctorch_add_test(matmul_dtype_test
+  SOURCES matmul_dtype_test.cpp
+  LIBS    ctorch_core
+)
+
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test
     SOURCES cuda_smoke_test.cpp
