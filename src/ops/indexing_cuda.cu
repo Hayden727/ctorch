@@ -93,16 +93,16 @@ __global__ void validate_indices_kernel(const I* idx_base, std::int64_t idx_stri
     if (i >= n_indices) {
         return;
     }
-    std::int64_t v = static_cast<std::int64_t>(idx_base[i * idx_stride_elems]);
-    if (v < 0) {
-        v += src_dim_size;
-    }
-    if (v < 0 || v >= src_dim_size) {
+    const std::int64_t raw = static_cast<std::int64_t>(idx_base[i * idx_stride_elems]);
+    // Range-check before adjusting — `raw + src_dim_size` would overflow
+    // signed-64 (UB) when `raw == INT64_MIN`. Mirrors the CPU kernel.
+    if (raw < -src_dim_size || raw >= src_dim_size) {
         atomicMax(err_flag, 1);
         resolved[i] = 0;
-    } else {
-        resolved[i] = v * src_dim_stride;
+        return;
     }
+    const std::int64_t v = raw < 0 ? raw + src_dim_size : raw;
+    resolved[i] = v * src_dim_stride;
 }
 
 template <class T>

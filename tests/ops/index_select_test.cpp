@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using ctorch::Device;
@@ -183,6 +184,15 @@ TEST(IndexSelect, OutOfRangeIndexThrows) {
     EXPECT_THROW((void)index_select(src, 0, idx), ShapeError);
 
     set_indices64(idx, {-100});
+    EXPECT_THROW((void)index_select(src, 0, idx), ShapeError);
+}
+
+TEST(IndexSelect, Int64MinIndexThrowsWithoutOverflow) {
+    // `raw + src_dim_size` would overflow signed-64 (UB) for INT64_MIN —
+    // the bounds check has to fire before normalising.
+    Tensor src({4, 3}, dtype::float32, Device::cpu());
+    Tensor idx({1}, dtype::int64, Device::cpu());
+    set_indices64(idx, {std::numeric_limits<std::int64_t>::min()});
     EXPECT_THROW((void)index_select(src, 0, idx), ShapeError);
 }
 

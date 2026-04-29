@@ -278,15 +278,20 @@ Tensor Tensor::slice(int dim, std::int64_t start, std::int64_t end, std::int64_t
     const int d = normalise_dim(dim, rank, "slice");
     const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
 
-    // PyTorch-style normalise + clamp for slice bounds.
+    // PyTorch-style normalise + clamp for slice bounds. Floor extreme
+    // negatives at `-size` first so `+ size` can't overflow signed-64
+    // when start / end is INT64_MIN.
+    if (start < -size) {
+        start = -size;
+    }
+    if (end < -size) {
+        end = -size;
+    }
     if (start < 0) {
         start += size;
     }
     if (end < 0) {
         end += size;
-    }
-    if (start < 0) {
-        start = 0;
     }
     if (end < start) {
         end = start;
@@ -318,12 +323,15 @@ Tensor Tensor::select(int dim, std::int64_t index) const {
     const int rank = static_cast<int>(impl_->shape.size());
     const int d = normalise_dim(dim, rank, "select");
     const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
-    const std::int64_t adj = index < 0 ? index + size : index;
-    if (adj < 0 || adj >= size) {
+    // Range-check before normalising — `index + size` would overflow
+    // signed-64 (UB) when `index == INT64_MIN`. Valid window after
+    // normalisation is `[-size, size)`.
+    if (index < -size || index >= size) {
         throw ShapeError("ctorch::Tensor::select: index " + std::to_string(index) +
                          " out of range for dim " + std::to_string(d) + " of size " +
                          std::to_string(size));
     }
+    const std::int64_t adj = index < 0 ? index + size : index;
     auto out = std::make_shared<detail::TensorImpl>();
     out->storage = impl_->storage;
     out->dt = impl_->dt;
@@ -351,6 +359,15 @@ Tensor Tensor::narrow(int dim, std::int64_t start, std::int64_t length) const {
     const int rank = static_cast<int>(impl_->shape.size());
     const int d = normalise_dim(dim, rank, "narrow");
     const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+    // Range-check before normalising — `start + size` would overflow
+    // signed-64 (UB) when `start == INT64_MIN`. Valid `start` window is
+    // `[-size, size]`; out-of-window throws below alongside the length
+    // check.
+    if (start < -size || start > size) {
+        throw ShapeError("ctorch::Tensor::narrow: start " + std::to_string(start) +
+                         " out of bounds for dim " + std::to_string(d) + " of size " +
+                         std::to_string(size));
+    }
     const std::int64_t adj_start = start < 0 ? start + size : start;
     if (adj_start < 0 || adj_start + length > size) {
         throw ShapeError("ctorch::Tensor::narrow: range [" + std::to_string(start) + ", " +

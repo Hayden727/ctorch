@@ -55,16 +55,16 @@ void run_index_select_cpu(const Tensor& src, int dim, const Tensor& indices, Ten
     // surfaced rather than silently ignored.
     std::vector<std::int64_t> resolved(static_cast<std::size_t>(n_indices));
     for (std::int64_t i = 0; i < n_indices; ++i) {
-        std::int64_t v = static_cast<std::int64_t>(idx_base[i * idx_stride]);
-        if (v < 0) {
-            v += src_dim_size;
-        }
-        if (v < 0 || v >= src_dim_size) {
-            throw ShapeError("ctorch::index_select: index " +
-                             std::to_string(static_cast<std::int64_t>(idx_base[i * idx_stride])) +
+        const std::int64_t raw = static_cast<std::int64_t>(idx_base[i * idx_stride]);
+        // Range-check BEFORE normalising negatives — `raw + src_dim_size`
+        // would overflow signed-64 (UB) when `raw == INT64_MIN`. The valid
+        // window after normalisation is `[-src_dim_size, src_dim_size)`.
+        if (raw < -src_dim_size || raw >= src_dim_size) {
+            throw ShapeError("ctorch::index_select: index " + std::to_string(raw) +
                              " out of range for dim " + std::to_string(dim) + " of size " +
                              std::to_string(src_dim_size));
         }
+        const std::int64_t v = raw < 0 ? raw + src_dim_size : raw;
         resolved[static_cast<std::size_t>(i)] = v * src_dim_stride;
     }
 

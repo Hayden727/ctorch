@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using ctorch::Device;
@@ -173,6 +174,20 @@ TEST(TensorSelect, OutOfRangeIndexThrows) {
     EXPECT_THROW((void)t.select(0, -5), ShapeError);
 }
 
+TEST(TensorSelect, Int64MinIndexThrowsWithoutOverflow) {
+    // `index + size` would overflow signed-64 (UB) for INT64_MIN — the
+    // bounds check has to fire before normalising.
+    Tensor t({4}, dtype::int32, Device::cpu());
+    EXPECT_THROW((void)t.select(0, std::numeric_limits<std::int64_t>::min()), ShapeError);
+}
+
+TEST(TensorSlice, ExtremeNegativeBoundsClampWithoutOverflow) {
+    // INT64_MIN in start / end must clamp safely instead of overflowing.
+    Tensor t({4}, dtype::int32, Device::cpu());
+    Tensor s = t.slice(0, std::numeric_limits<std::int64_t>::min(), 100);
+    EXPECT_EQ(s.shape(), std::vector<std::int64_t>({4}));
+}
+
 TEST(TensorNarrow, IsSugarForSliceWithStepOne) {
     Tensor t({5}, dtype::int32, Device::cpu());
     fill_iota_int32(t);
@@ -202,6 +217,11 @@ TEST(TensorNarrow, OutOfRangeRangeThrows) {
     EXPECT_THROW((void)t.narrow(0, 0, 5), ShapeError);
     EXPECT_THROW((void)t.narrow(0, 3, 2), ShapeError);
     EXPECT_THROW((void)t.narrow(0, 0, -1), ShapeError);
+}
+
+TEST(TensorNarrow, Int64MinStartThrowsWithoutOverflow) {
+    Tensor t({4}, dtype::int32, Device::cpu());
+    EXPECT_THROW((void)t.narrow(0, std::numeric_limits<std::int64_t>::min(), 1), ShapeError);
 }
 
 TEST(TensorViewOps, StorageUseCountReflectsSharing) {
