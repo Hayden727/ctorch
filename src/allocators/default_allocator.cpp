@@ -34,14 +34,17 @@ namespace ctorch {
 
 namespace {
 
-/// Per-Kind override slot. Loaded with relaxed semantics on every
-/// `default_allocator` call; when no override is installed the value is
-/// `nullptr` and the call falls through to the built-in pool. The slot
-/// is keyed only by `Device::Kind` because tests overwhelmingly want to
-/// instrument either "the CPU pool" or "every CUDA pool" rather than a
-/// single device ordinal — and routing CUDA overrides per-ordinal would
-/// either need a bounded ordinal table or a lookup mutex on the hot
-/// path.
+/// Per-Kind override slot. Readers load with acquire semantics so the
+/// release-side store in `set_default_allocator` (acq_rel exchange)
+/// synchronizes-with the read; without that edge a consumer could see
+/// the published pointer but observe stale bytes of the override
+/// object's non-atomic state (e.g. `CountingAllocator::base_`). When no
+/// override is installed the value is `nullptr` and the call falls
+/// through to the built-in pool. The slot is keyed only by
+/// `Device::Kind` because tests overwhelmingly want to instrument
+/// either "the CPU pool" or "every CUDA pool" rather than a single
+/// device ordinal — and routing CUDA overrides per-ordinal would either
+/// need a bounded ordinal table or a lookup mutex on the hot path.
 ///
 /// Throws `std::invalid_argument` if `kind` is outside the declared
 /// enumerators. `enum class` is not a closed set in C++ — a malformed
@@ -109,7 +112,7 @@ detail::CudaCachingAllocator* cuda_allocator_for(int index) {
 #endif // CTORCH_HAS_CUDA
 
 Allocator* default_allocator(Device device) {
-    if (auto* override = override_slot(device.kind).load(std::memory_order_relaxed)) {
+    if (auto* override = override_slot(device.kind).load(std::memory_order_acquire)) {
         return override;
     }
     switch (device.kind) {
