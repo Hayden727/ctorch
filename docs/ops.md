@@ -100,6 +100,61 @@ input is ever required.
 
 All four derive from `ctorch::Error` which derives from `std::runtime_error`.
 
+# Reductions
+
+Operators delivered by [Issue #9](https://github.com/Hayden727/ctorch/issues/9).
+Include `<ctorch/ops/reduction.h>` for the public free functions.
+
+Negative axes are normalised against `ndim`; duplicate or out-of-range axes
+raise `ShapeError`. Empty `dims` collapses every axis (whole-tensor form).
+With `keepdim=true` the output keeps a singleton at every collapsed
+dimension; with `keepdim=false` (default) those dimensions are dropped.
+
+## Sum / mean / prod
+
+| Op    | Free function                                | Notes                                                                                                                                                                                                                                                          |
+| ----- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sum   | `ctorch::sum(x[, dims, keepdim])`            | bool / int* promote to int64 (matches PyTorch — int32 accumulators would overflow at 1B-element scale). fp32 sums use a `double` accumulator on CPU and CUDA so the two backends stay numerically aligned.                                                    |
+| mean  | `ctorch::mean(x[, dims, keepdim])`           | Floating dtype only. Integer or `bool` input throws `DTypeError` (cast first). Empty-slice → NaN (matches PyTorch's `0/0`).                                                                                                                                    |
+| prod  | `ctorch::prod(x[, dims, keepdim])`           | Same dtype rules as `sum`. Integer `prod` accumulates in int64 — saturates / wraps for very large products; cast to float for high-precision results.                                                                                                          |
+
+## Max / min (values only)
+
+`max(x)` / `min(x)` return a 0-d tensor of the input dtype. The
+multi-axis form `max(x, dims, keepdim)` reduces every axis listed in
+`dims`. Empty reductions throw `ShapeError` ("operation has no
+identity"). NaN propagates: any NaN in the slice forces the result to
+NaN.
+
+## Max / min with indices (single axis)
+
+```cpp
+auto vi = ctorch::max(x, /*dim=*/-1, /*keepdim=*/false);
+//   vi.values  : input dtype, shape = x.shape() with dim collapsed
+//   vi.indices : int64,       shape = same as values
+```
+
+Tie-breaking is **first-occurrence-wins** (matches PyTorch's documented
+behaviour and `numpy.argmax`). NaN-bearing slices produce NaN for the
+value and the index of the **first** NaN.
+
+## Argmax / argmin
+
+`argmax(x, dim, keepdim)` and `argmin(x, dim, keepdim)` always return an
+int64 index tensor. 0-d input or zero-length reduced axis throws
+`ShapeError`.
+
+## Numerical tolerances
+
+Per-dtype parity tolerances vs PyTorch reference (verified by
+`tests/parity/reduction_parity_test.cpp`):
+
+| Input dtype | Tolerance           |
+| ----------- | ------------------- |
+| float32     | 1e-5 relative       |
+| float64     | 1e-12 relative      |
+| int*, bool  | exact               |
+
 ## Regenerating parity fixtures
 
 The `.npy` fixtures under `tests/parity/fixtures/` are committed binaries.

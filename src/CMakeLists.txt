@@ -11,6 +11,9 @@ add_library(ctorch_core STATIC
   ops/cast_cpu.cpp
   ops/binary_ops_cpu.cpp
   ops/unary_ops_cpu.cpp
+  ops/reduction.cpp
+  ops/reduction_iter.cpp
+  ops/reduction_ops_cpu.cpp
   allocators/cpu_pool.cpp
   allocators/default_allocator.cpp
 )
@@ -34,6 +37,7 @@ if(CTORCH_CUDA)
     allocators/cuda_caching.cpp
     ops/binary_ops_cuda.cu
     ops/unary_ops_cuda.cu
+    ops/reduction_ops_cuda.cu
   )
   target_compile_definitions(ctorch_core PUBLIC CTORCH_HAS_CUDA=1)
   target_link_libraries(ctorch_core PUBLIC CUDA::cudart)
