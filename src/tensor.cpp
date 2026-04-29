@@ -16,6 +16,8 @@
 
 #include "ctorch/tensor.h"
 
+#include "ctorch/errors.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -249,6 +251,141 @@ Tensor Tensor::contiguous() const {
     auto* dst_base = static_cast<std::byte*>(out.impl_->storage.data());
     copy_strided_to_contiguous(src_base, dst_base, impl_->shape, impl_->stride, elem);
     return out;
+}
+
+namespace {
+
+int normalise_dim(int dim, int rank, const char* op) {
+    const int adj = dim < 0 ? dim + rank : dim;
+    if (rank == 0 || adj < 0 || adj >= rank) {
+        throw ShapeError(std::string("ctorch::Tensor::") + op + ": dim " + std::to_string(dim) +
+                         " out of range for tensor of rank " + std::to_string(rank));
+    }
+    return adj;
+}
+
+} // namespace
+
+Tensor Tensor::slice(int dim, std::int64_t start, std::int64_t end, std::int64_t step) const {
+    if (!impl_) {
+        throw_undefined("slice");
+    }
+    if (step <= 0) {
+        throw ShapeError("ctorch::Tensor::slice: step must be > 0 (got " + std::to_string(step) +
+                         ")");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "slice");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+
+    // PyTorch-style normalise + clamp for slice bounds. Floor extreme
+    // negatives at `-size` first so `+ size` can't overflow signed-64
+    // when start / end is INT64_MIN.
+    if (start < -size) {
+        start = -size;
+    }
+    if (end < -size) {
+        end = -size;
+    }
+    if (start < 0) {
+        start += size;
+    }
+    if (end < 0) {
+        end += size;
+    }
+    if (end < start) {
+        end = start;
+    }
+    if (start > size) {
+        start = size;
+    }
+    if (end > size) {
+        end = size;
+    }
+    // Overflow-safe ceil-div: forming `(span + step - 1)` would overflow
+    // signed-64 when `step` is near INT64_MAX. After clamping `span` is
+    // non-negative, so the branchy form below stays in-range.
+    const std::int64_t span = end - start;
+    const std::int64_t length = span == 0 ? 0 : (span - 1) / step + 1;
+
+    auto out = std::make_shared<detail::TensorImpl>();
+    out->storage = impl_->storage;
+    out->dt = impl_->dt;
+    out->shape = impl_->shape;
+    out->stride = impl_->stride;
+    const std::int64_t old_stride = impl_->stride[static_cast<std::size_t>(d)];
+    out->shape[static_cast<std::size_t>(d)] = length;
+    // Stride only matters when the axis is iterated (length > 1); for
+    // length 0 / 1 the value is unobservable, so collapse it to the
+    // original stride to avoid `old_stride * step` overflowing signed-64
+    // when `step` is near INT64_MAX (e.g. step=INT64_MAX on shape {2,2}).
+    out->stride[static_cast<std::size_t>(d)] = length > 1 ? old_stride * step : old_stride;
+    out->offset = impl_->offset + start * old_stride;
+    return Tensor{std::move(out)};
+}
+
+Tensor Tensor::select(int dim, std::int64_t index) const {
+    if (!impl_) {
+        throw_undefined("select");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "select");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+    // Range-check before normalising — `index + size` would overflow
+    // signed-64 (UB) when `index == INT64_MIN`. Valid window after
+    // normalisation is `[-size, size)`.
+    if (index < -size || index >= size) {
+        throw ShapeError("ctorch::Tensor::select: index " + std::to_string(index) +
+                         " out of range for dim " + std::to_string(d) + " of size " +
+                         std::to_string(size));
+    }
+    const std::int64_t adj = index < 0 ? index + size : index;
+    auto out = std::make_shared<detail::TensorImpl>();
+    out->storage = impl_->storage;
+    out->dt = impl_->dt;
+    out->offset = impl_->offset + adj * impl_->stride[static_cast<std::size_t>(d)];
+    out->shape.reserve(static_cast<std::size_t>(rank - 1));
+    out->stride.reserve(static_cast<std::size_t>(rank - 1));
+    for (int i = 0; i < rank; ++i) {
+        if (i == d) {
+            continue;
+        }
+        out->shape.push_back(impl_->shape[static_cast<std::size_t>(i)]);
+        out->stride.push_back(impl_->stride[static_cast<std::size_t>(i)]);
+    }
+    return Tensor{std::move(out)};
+}
+
+Tensor Tensor::narrow(int dim, std::int64_t start, std::int64_t length) const {
+    if (!impl_) {
+        throw_undefined("narrow");
+    }
+    if (length < 0) {
+        throw ShapeError("ctorch::Tensor::narrow: length must be >= 0 (got " +
+                         std::to_string(length) + ")");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "narrow");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+    // Range-check before normalising — `start + size` would overflow
+    // signed-64 (UB) when `start == INT64_MIN`. Valid `start` window is
+    // `[-size, size]`; out-of-window throws below alongside the length
+    // check.
+    if (start < -size || start > size) {
+        throw ShapeError("ctorch::Tensor::narrow: start " + std::to_string(start) +
+                         " out of bounds for dim " + std::to_string(d) + " of size " +
+                         std::to_string(size));
+    }
+    const std::int64_t adj_start = start < 0 ? start + size : start;
+    // Subtraction-based bound check: `adj_start + length` could overflow
+    // signed-64 when `length` is near INT64_MAX. `adj_start` is already
+    // clamped to `[0, size]` so `size - adj_start` stays non-negative.
+    if (length > size - adj_start) {
+        throw ShapeError("ctorch::Tensor::narrow: start " + std::to_string(start) + " + length " +
+                         std::to_string(length) + " out of bounds for dim " + std::to_string(d) +
+                         " of size " + std::to_string(size));
+    }
+    return slice(d, adj_start, adj_start + length, 1);
 }
 
 Tensor Tensor::to(Device d) const {

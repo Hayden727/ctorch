@@ -155,6 +155,52 @@ Per-dtype parity tolerances vs PyTorch reference (verified by
 | float64     | 1e-12 relative      |
 | int*, bool  | exact               |
 
+# Indexing & slicing
+
+Operators delivered by [Issue #10](https://github.com/Hayden727/ctorch/issues/10).
+
+## Zero-copy view ops
+
+Pure metadata operations on `Tensor`. They share storage with the source
+(`storage().use_count()` increments) and never launch a kernel — the
+returned tensor is a strided view, not a copy.
+
+| Op     | Method                                    | Result rank | Notes                                                                                                  |
+| ------ | ----------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------ |
+| slice  | `t.slice(dim, start, end, step=1)`        | unchanged   | Negative `dim`/`start`/`end` are normalised against `shape[dim]`; bounds clamp PyTorch-style. `step > 0`. |
+| select | `t.select(dim, index)`                    | rank − 1    | Drops the selected dim. Negative `index` normalised; out-of-range throws `ShapeError`.                  |
+| narrow | `t.narrow(dim, start, length)`            | unchanged   | Sugar for `slice(dim, start, start + length, 1)`. `length >= 0`; range must fit within `shape[dim]`.   |
+
+`step <= 0` for `slice` raises `ShapeError`; reverse-slice is out of
+scope. Empty slices (`start == end`) produce a 0-sized dim and remain
+valid for downstream ops.
+
+## index_select
+
+`<ctorch/ops/indexing.h>`:
+
+```cpp
+Tensor index_select(const Tensor& src, int dim, const Tensor& indices);
+```
+
+Gathers along a single axis and returns a **fresh contiguous** output
+(no aliasing). `indices` must be 1-D with dtype `int32` or `int64`, on
+the same device as `src`. The output shape is `src.shape()` with
+`src.shape[dim]` replaced by `indices.numel()`. Negative entries in
+`indices` are normalised against `src.shape[dim]`; out-of-range entries
+throw `ShapeError` on both backends. CUDA validates indices in a
+pre-pass kernel that copies a single-int error flag back to the host.
+
+| Source dtype          | Index dtypes  | Result dtype |
+| --------------------- | ------------- | ------------ |
+| f32, f64, i32, i64, bool | int32, int64 | same as source |
+
+`bfloat16` source raises `DTypeError` (consistent with the rest of the
+op surface). Non-int index dtypes raise `DTypeError`. `dim`
+out-of-range, rank-0 source, or non-1-D indices raise `ShapeError`.
+Cross-device pairs (`src.device() != indices.device()`) raise
+`DeviceError`.
+
 ## Regenerating parity fixtures
 
 The `.npy` fixtures under `tests/parity/fixtures/` are committed binaries.

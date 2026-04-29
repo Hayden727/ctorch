@@ -152,6 +152,17 @@ ARG_CASES = [
     ("argmax", np.float32, (5,), 0, False, "tied"),
 ]
 
+# index_select cases:
+#   (src_dtype, src_shape, dim, indices, idx_dtype)
+INDEX_SELECT_CASES = [
+    (np.float32, (4, 3),    0, [2, 0, 3, 0],         np.int64),
+    (np.float32, (3, 4),    1, [3, 1, 0],            np.int32),
+    (np.float64, (5,),      0, [4, 2, 0],            np.int64),
+    (np.int32,   (3, 4),    0, [1, 1, 2],            np.int64),
+    (np.int64,   (2, 3, 4), 2, [3, 0],               np.int32),
+    (np.float32, (2, 3, 4), 1, [2, 1, 0],            np.int64),
+]
+
 
 def dim_tag(dims):
     if dims is None:
@@ -265,6 +276,24 @@ def emit_binary(out_dir: str) -> int:
     return written
 
 
+def emit_index_select(out_dir: str) -> int:
+    written = 0
+    for src_dt, src_shape, dim, indices, idx_dt in INDEX_SELECT_CASES:
+        x = random_input(src_shape, src_dt)
+        idx = np.asarray(indices, dtype=idx_dt)
+        # np.take with axis= matches PyTorch / ctorch index_select semantics.
+        ref = np.take(x, idx, axis=dim)
+        prefix = (
+            f"index_select_{np.dtype(src_dt).name}_{shape_tag(src_shape)}_"
+            f"dim{dim}_{np.dtype(idx_dt).name}_n{len(indices)}"
+        )
+        np.save(os.path.join(out_dir, prefix + "_in.npy"), x, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_idx.npy"), idx, allow_pickle=False)
+        np.save(os.path.join(out_dir, prefix + "_ref.npy"), ref, allow_pickle=False)
+        written += 3
+    return written
+
+
 def emit_unary(out_dir: str) -> int:
     written = 0
     for op_name, dt, shape, gen in UNARY_CASES:
@@ -290,7 +319,8 @@ def main() -> None:
     n_mm_val = emit_max_min_values(args.out)
     n_mm_idx = emit_max_min_idx(args.out)
     n_arg = emit_arg(args.out)
-    total = n_bin + n_un + n_sum_like + n_mm_val + n_mm_idx + n_arg
+    n_idx = emit_index_select(args.out)
+    total = n_bin + n_un + n_sum_like + n_mm_val + n_mm_idx + n_arg + n_idx
     print(f"wrote {total} files to {args.out}")
 
 
