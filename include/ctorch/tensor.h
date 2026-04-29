@@ -118,6 +118,23 @@ class Tensor {
     /// and copies the bytes; round-trip CPU↔CUDA is byte-identical.
     Tensor to(Device d) const;
 
+    /// Zero-copy slice along \p dim. Negative \p dim, \p start, \p end are
+    /// normalised against `shape[dim]`; \p start / \p end are then clamped to
+    /// `[0, shape[dim]]` (PyTorch-compatible). \p step must be > 0; otherwise
+    /// throws `ShapeError`. The result shares storage with `*this`.
+    Tensor slice(int dim, std::int64_t start, std::int64_t end, std::int64_t step = 1) const;
+
+    /// Zero-copy single-element selection along \p dim. The selected dim is
+    /// removed from the result (rank goes down by 1). Negative \p index is
+    /// normalised against `shape[dim]`; out-of-range throws `ShapeError`.
+    Tensor select(int dim, std::int64_t index) const;
+
+    /// Zero-copy narrow: sugar for `slice(dim, start, start + length, 1)`.
+    /// Negative \p start is normalised against `shape[dim]`; \p length must be
+    /// non-negative and `start + length <= shape[dim]`; otherwise throws
+    /// `ShapeError`.
+    Tensor narrow(int dim, std::int64_t start, std::int64_t length) const;
+
     bool defined() const { return static_cast<bool>(impl_); }
 
   private:

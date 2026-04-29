@@ -32,3 +32,11 @@ ctorch_add_test(reduction_parity_test
 target_compile_definitions(reduction_parity_test
   PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
 )
+
+ctorch_add_test(indexing_parity_test
+  SOURCES indexing_parity_test.cpp
+  LIBS    ctorch_parity_support
+)
+target_compile_definitions(indexing_parity_test
+  PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
+)

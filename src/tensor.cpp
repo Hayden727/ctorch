@@ -16,6 +16,8 @@
 
 #include "ctorch/tensor.h"
 
+#include "ctorch/errors.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -249,6 +251,113 @@ Tensor Tensor::contiguous() const {
     auto* dst_base = static_cast<std::byte*>(out.impl_->storage.data());
     copy_strided_to_contiguous(src_base, dst_base, impl_->shape, impl_->stride, elem);
     return out;
+}
+
+namespace {
+
+int normalise_dim(int dim, int rank, const char* op) {
+    const int adj = dim < 0 ? dim + rank : dim;
+    if (rank == 0 || adj < 0 || adj >= rank) {
+        throw ShapeError(std::string("ctorch::Tensor::") + op + ": dim " + std::to_string(dim) +
+                         " out of range for tensor of rank " + std::to_string(rank));
+    }
+    return adj;
+}
+
+} // namespace
+
+Tensor Tensor::slice(int dim, std::int64_t start, std::int64_t end, std::int64_t step) const {
+    if (!impl_) {
+        throw_undefined("slice");
+    }
+    if (step <= 0) {
+        throw ShapeError("ctorch::Tensor::slice: step must be > 0 (got " + std::to_string(step) +
+                         ")");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "slice");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+
+    // PyTorch-style normalise + clamp for slice bounds.
+    if (start < 0) {
+        start += size;
+    }
+    if (end < 0) {
+        end += size;
+    }
+    if (start < 0) {
+        start = 0;
+    }
+    if (end < start) {
+        end = start;
+    }
+    if (start > size) {
+        start = size;
+    }
+    if (end > size) {
+        end = size;
+    }
+    const std::int64_t length = (end - start + step - 1) / step;
+
+    auto out = std::make_shared<detail::TensorImpl>();
+    out->storage = impl_->storage;
+    out->dt = impl_->dt;
+    out->shape = impl_->shape;
+    out->stride = impl_->stride;
+    const std::int64_t old_stride = impl_->stride[static_cast<std::size_t>(d)];
+    out->shape[static_cast<std::size_t>(d)] = length;
+    out->stride[static_cast<std::size_t>(d)] = old_stride * step;
+    out->offset = impl_->offset + start * old_stride;
+    return Tensor{std::move(out)};
+}
+
+Tensor Tensor::select(int dim, std::int64_t index) const {
+    if (!impl_) {
+        throw_undefined("select");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "select");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+    const std::int64_t adj = index < 0 ? index + size : index;
+    if (adj < 0 || adj >= size) {
+        throw ShapeError("ctorch::Tensor::select: index " + std::to_string(index) +
+                         " out of range for dim " + std::to_string(d) + " of size " +
+                         std::to_string(size));
+    }
+    auto out = std::make_shared<detail::TensorImpl>();
+    out->storage = impl_->storage;
+    out->dt = impl_->dt;
+    out->offset = impl_->offset + adj * impl_->stride[static_cast<std::size_t>(d)];
+    out->shape.reserve(static_cast<std::size_t>(rank - 1));
+    out->stride.reserve(static_cast<std::size_t>(rank - 1));
+    for (int i = 0; i < rank; ++i) {
+        if (i == d) {
+            continue;
+        }
+        out->shape.push_back(impl_->shape[static_cast<std::size_t>(i)]);
+        out->stride.push_back(impl_->stride[static_cast<std::size_t>(i)]);
+    }
+    return Tensor{std::move(out)};
+}
+
+Tensor Tensor::narrow(int dim, std::int64_t start, std::int64_t length) const {
+    if (!impl_) {
+        throw_undefined("narrow");
+    }
+    if (length < 0) {
+        throw ShapeError("ctorch::Tensor::narrow: length must be >= 0 (got " +
+                         std::to_string(length) + ")");
+    }
+    const int rank = static_cast<int>(impl_->shape.size());
+    const int d = normalise_dim(dim, rank, "narrow");
+    const std::int64_t size = impl_->shape[static_cast<std::size_t>(d)];
+    const std::int64_t adj_start = start < 0 ? start + size : start;
+    if (adj_start < 0 || adj_start + length > size) {
+        throw ShapeError("ctorch::Tensor::narrow: range [" + std::to_string(start) + ", " +
+                         std::to_string(start + length) + ") out of bounds for dim " +
+                         std::to_string(d) + " of size " + std::to_string(size));
+    }
+    return slice(d, adj_start, adj_start + length, 1);
 }
 
 Tensor Tensor::to(Device d) const {

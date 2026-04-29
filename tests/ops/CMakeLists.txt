@@ -50,6 +50,16 @@ ctorch_add_test(reduction_alloc_test
 # and the CountingAllocator wrapper, both under src/.
 target_include_directories(reduction_alloc_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
+ctorch_add_test(index_select_test
+  SOURCES index_select_test.cpp
+  LIBS    ctorch_core
+)
+
+ctorch_add_test(index_select_dtype_test
+  SOURCES index_select_dtype_test.cpp
+  LIBS    ctorch_core
+)
+
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test
     SOURCES cuda_smoke_test.cpp

@@ -134,6 +134,19 @@ struct ArgminOp {
     using fn_t = ArgFn;
 };
 
+// ---------- indexing ----------
+
+// Gather along a single axis. The output tensor is preallocated by the
+// front-door (contiguous, shape = src.shape with src.shape[dim] replaced
+// by indices.numel()); the kernel fills it. `dim` has already been
+// normalised to a non-negative axis. `indices` is 1-D, dtype int32 or
+// int64, on the same device as `src`.
+using IndexSelectFn = void (*)(const Tensor& src, int dim, const Tensor& indices, Tensor& out);
+
+struct IndexSelectOp {
+    using fn_t = IndexSelectFn;
+};
+
 } // namespace ctorch::op
 
 #endif // CTORCH_OPS_OP_KEYS_H
