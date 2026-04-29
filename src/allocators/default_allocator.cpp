@@ -18,6 +18,7 @@
 
 #include "allocators/cpu_pool.h"
 
+#include <atomic>
 #include <stdexcept>
 
 #if defined(CTORCH_HAS_CUDA)
@@ -30,6 +31,35 @@
 #endif
 
 namespace ctorch {
+
+namespace {
+
+/// Per-Kind override slot. Readers load with acquire semantics so the
+/// release-side store in `set_default_allocator` (acq_rel exchange)
+/// synchronizes-with the read; without that edge a consumer could see
+/// the published pointer but observe stale bytes of the override
+/// object's non-atomic state (e.g. `CountingAllocator::base_`). When no
+/// override is installed the value is `nullptr` and the call falls
+/// through to the built-in pool. The slot is keyed only by
+/// `Device::Kind` because tests overwhelmingly want to instrument
+/// either "the CPU pool" or "every CUDA pool" rather than a single
+/// device ordinal — and routing CUDA overrides per-ordinal would either
+/// need a bounded ordinal table or a lookup mutex on the hot path.
+///
+/// Throws `std::invalid_argument` if `kind` is outside the declared
+/// enumerators. `enum class` is not a closed set in C++ — a malformed
+/// value can arrive from a memcpy / FFI / out-of-range cast, and we
+/// must not index the slot table out-of-bounds in that case.
+std::atomic<Allocator*>& override_slot(Device::Kind kind) {
+    static std::atomic<Allocator*> slots[kNumDeviceKinds]{};
+    const auto idx = static_cast<std::size_t>(kind);
+    if (idx >= static_cast<std::size_t>(kNumDeviceKinds)) {
+        throw std::invalid_argument("ctorch: unknown Device::Kind");
+    }
+    return slots[idx];
+}
+
+} // namespace
 
 #if defined(CTORCH_HAS_CUDA)
 namespace {
@@ -82,6 +112,9 @@ detail::CudaCachingAllocator* cuda_allocator_for(int index) {
 #endif // CTORCH_HAS_CUDA
 
 Allocator* default_allocator(Device device) {
+    if (auto* override = override_slot(device.kind).load(std::memory_order_acquire)) {
+        return override;
+    }
     switch (device.kind) {
     case Device::Kind::CPU: {
         static detail::CpuPoolAllocator cpu;
@@ -97,6 +130,10 @@ Allocator* default_allocator(Device device) {
     }
     }
     throw std::invalid_argument("ctorch::default_allocator: unknown Device::Kind");
+}
+
+Allocator* set_default_allocator(Device device, Allocator* allocator) {
+    return override_slot(device.kind).exchange(allocator, std::memory_order_acq_rel);
 }
 
 } // namespace ctorch
