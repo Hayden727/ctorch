@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -102,6 +103,17 @@ TEST(SetDefaultAllocator, CountsTensorBackedAllocation) {
     }
     EXPECT_EQ(counter.dealloc_calls() - baseline_dealloc, 1u);
     EXPECT_EQ(counter.live_bytes(), 0);
+}
+
+TEST(SetDefaultAllocator, RejectsOutOfRangeDeviceKind) {
+    // `enum class` is not a closed set: a malformed value can arrive
+    // via memcpy / FFI / out-of-range cast. Both `default_allocator`
+    // and `set_default_allocator` index a fixed-size slot table and
+    // must guard against this rather than reading out-of-bounds.
+    ctorch::Device d;
+    d.kind = static_cast<ctorch::Device::Kind>(99);
+    EXPECT_THROW(ctorch::default_allocator(d), std::invalid_argument);
+    EXPECT_THROW(ctorch::set_default_allocator(d, nullptr), std::invalid_argument);
 }
 
 TEST(CountingAllocator, ConcurrentAllocateIsRaceFree) {

@@ -42,9 +42,18 @@ namespace {
 /// single device ordinal — and routing CUDA overrides per-ordinal would
 /// either need a bounded ordinal table or a lookup mutex on the hot
 /// path.
+///
+/// Throws `std::invalid_argument` if `kind` is outside the declared
+/// enumerators. `enum class` is not a closed set in C++ — a malformed
+/// value can arrive from a memcpy / FFI / out-of-range cast, and we
+/// must not index the slot table out-of-bounds in that case.
 std::atomic<Allocator*>& override_slot(Device::Kind kind) {
     static std::atomic<Allocator*> slots[kNumDeviceKinds]{};
-    return slots[static_cast<std::size_t>(kind)];
+    const auto idx = static_cast<std::size_t>(kind);
+    if (idx >= static_cast<std::size_t>(kNumDeviceKinds)) {
+        throw std::invalid_argument("ctorch: unknown Device::Kind");
+    }
+    return slots[idx];
 }
 
 } // namespace
