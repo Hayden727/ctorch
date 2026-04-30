@@ -58,4 +58,10 @@ if(CTORCH_BLAS)
     ${CTORCH_BLAS_EXTRA_DEFINES}
   )
   target_link_libraries(ctorch_core PRIVATE BLAS::BLAS)
+  if(CTORCH_CBLAS_INCLUDE_DIR)
+    # cblas.h discovered outside the compiler's default search (e.g.
+    # Homebrew/Apt non-system prefixes); add the resolved path so
+    # blas_cpu.cpp can pick it up.
+    target_include_directories(ctorch_core PRIVATE ${CTORCH_CBLAS_INCLUDE_DIR})
+  endif()
 endif()
