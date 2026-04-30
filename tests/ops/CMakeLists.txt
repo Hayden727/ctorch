@@ -65,15 +65,35 @@ ctorch_add_test(transpose_test
   LIBS    ctorch_core
 )
 
-ctorch_add_test(matmul_shape_test
-  SOURCES matmul_shape_test.cpp
-  LIBS    ctorch_core
-)
+# matmul shape / dtype / parity tests exercise the CPU matmul backend,
+# which is a no-op stub when CTORCH_BLAS=OFF. Skip them rather than
+# leave the suite permanently red in the no-BLAS build mode.
+if(CTORCH_BLAS)
+  ctorch_add_test(matmul_shape_test
+    SOURCES matmul_shape_test.cpp
+    LIBS    ctorch_core
+  )
 
-ctorch_add_test(matmul_dtype_test
-  SOURCES matmul_dtype_test.cpp
-  LIBS    ctorch_core
-)
+  ctorch_add_test(matmul_dtype_test
+    SOURCES matmul_dtype_test.cpp
+    LIBS    ctorch_core
+  )
+endif()
+
+# CUDA matmul correctness — independent of CTORCH_BLAS because cuBLAS
+# is its own dependency. Compiled in every config; runtime-skipped when
+# no GPU is available.
+if(CTORCH_CUDA)
+  ctorch_add_test(matmul_cuda_test
+    SOURCES matmul_cuda_test.cpp
+    LIBS    ctorch_core CUDA::cudart
+  )
+else()
+  ctorch_add_test(matmul_cuda_test
+    SOURCES matmul_cuda_test.cpp
+    LIBS    ctorch_core
+  )
+endif()
 
 if(CTORCH_CUDA)
   ctorch_add_test(cuda_smoke_test

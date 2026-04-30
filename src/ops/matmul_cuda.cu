@@ -33,8 +33,8 @@ namespace {
 
 template <class T>
 void run_matmul_cuda(const Tensor& a, const Tensor& b, Tensor& out, const MatmulPlan& plan,
-                    void (*gemm)(bool, bool, int, int, int, T, const T*, int, const T*, int, T, T*,
-                                 int, int)) {
+                     void (*gemm)(bool, bool, int, int, int, T, const T*, int, const T*, int, T, T*,
+                                  int, int)) {
     const auto* a_base = static_cast<const T*>(a.storage().data()) + a.offset();
     const auto* b_base = static_cast<const T*>(b.storage().data()) + b.offset();
     auto* c_base = static_cast<T*>(out.storage().data()) + out.offset();

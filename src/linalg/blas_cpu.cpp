@@ -61,8 +61,8 @@ void gemm_cpu_f64(bool ta, bool tb, int M, int N, int K, double alpha, const dou
 // the symbols resolve at link time when CTORCH_BLAS is OFF.
 void gemm_cpu_f32(bool, bool, int, int, int, float, const float*, int, const float*, int, float,
                   float*, int) {}
-void gemm_cpu_f64(bool, bool, int, int, int, double, const double*, int, const double*, int,
-                  double, double*, int) {}
+void gemm_cpu_f64(bool, bool, int, int, int, double, const double*, int, const double*, int, double,
+                  double*, int) {}
 
 #endif // CTORCH_HAS_BLAS
 

@@ -76,8 +76,8 @@ TEST(MatmulShape, TwoDByOneDReturns1D) {
     Tensor b = make_f32({3}, {1.0f, 2.0f, 3.0f});
     Tensor c = matmul(a, b);
     EXPECT_EQ(c.shape(), std::vector<std::int64_t>({2}));
-    EXPECT_FLOAT_EQ(fdata(c)[0], 1 + 4 + 9);     // 14
-    EXPECT_FLOAT_EQ(fdata(c)[1], 4 + 10 + 18);   // 32
+    EXPECT_FLOAT_EQ(fdata(c)[0], 1 + 4 + 9);   // 14
+    EXPECT_FLOAT_EQ(fdata(c)[1], 4 + 10 + 18); // 32
 }
 
 TEST(MatmulShape, TwoDByTwoDStandardGemm) {
@@ -144,8 +144,8 @@ TEST(MatmulShape, MatmulOfTransposeProducesGramMatrix) {
     Tensor a = make_f32({2, 3}, {1, 2, 3, 4, 5, 6});
     Tensor c = matmul(a, a.T());
     EXPECT_EQ(c.shape(), std::vector<std::int64_t>({2, 2}));
-    EXPECT_FLOAT_EQ(fdata(c)[0], 1 + 4 + 9);     // 14
-    EXPECT_FLOAT_EQ(fdata(c)[1], 4 + 10 + 18);   // 32
-    EXPECT_FLOAT_EQ(fdata(c)[2], 4 + 10 + 18);   // 32
-    EXPECT_FLOAT_EQ(fdata(c)[3], 16 + 25 + 36);  // 77
+    EXPECT_FLOAT_EQ(fdata(c)[0], 1 + 4 + 9);    // 14
+    EXPECT_FLOAT_EQ(fdata(c)[1], 4 + 10 + 18);  // 32
+    EXPECT_FLOAT_EQ(fdata(c)[2], 4 + 10 + 18);  // 32
+    EXPECT_FLOAT_EQ(fdata(c)[3], 16 + 25 + 36); // 77
 }

@@ -59,34 +59,39 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
         throw ShapeError("ctorch::matmul: undefined input tensor");
     }
     if (a.device() != b.device()) {
-        throw DeviceError("ctorch::matmul: lhs is on " + std::string(a.device().is_cuda() ? "cuda" : "cpu") +
-                          ", rhs is on " + std::string(b.device().is_cuda() ? "cuda" : "cpu") +
+        throw DeviceError("ctorch::matmul: lhs is on " +
+                          std::string(a.device().is_cuda() ? "cuda" : "cpu") + ", rhs is on " +
+                          std::string(b.device().is_cuda() ? "cuda" : "cpu") +
                           " — both inputs must live on the same device");
     }
 
     const dtype promoted = promote_types(a.dtype(), b.dtype());
     reject_non_float(promoted);
 
-    // Promote operand dtypes if needed. For CUDA inputs that need
-    // promotion we'd need a CUDA cast kernel — that's not in scope for
-    // this milestone; reject and ask the user to cast first.
+    // Promote operand dtypes if needed. CPU casts go through `cast_cpu`
+    // directly; CUDA casts round-trip through CPU because we don't yet
+    // have a CUDA cast kernel. Slow, but correct and consistent with
+    // the documented promotion rules — both devices accept the same
+    // input pairs.
     auto cast_if_needed = [&](const Tensor& t) -> Tensor {
         if (t.dtype() == promoted) {
             return t;
         }
-        if (!t.device().is_cpu()) {
-            throw DTypeError("ctorch::matmul: implicit dtype promotion on CUDA inputs is not "
-                             "supported; cast both operands to the same dtype first");
+        if (t.device().is_cpu()) {
+            return ops::cast_cpu(t, promoted);
         }
-        return ops::cast_cpu(t, promoted);
+        const Device dev = t.device();
+        return ops::cast_cpu(t.to(Device::cpu()), promoted).to(dev);
     };
     const Tensor a_p = cast_if_needed(a);
     const Tensor b_p = cast_if_needed(b);
 
     // Materialise to contiguous so the backends can index with a
     // single base pointer + batch offsets. CPU's `.contiguous()` is
-    // free when already contiguous; CUDA's still throws when asked to
-    // strided-copy on-device, so document the limitation here.
+    // free when already contiguous; for non-contiguous CUDA operands
+    // we round-trip through CPU since on-device strided materialisation
+    // is not yet implemented (acceptable as a correctness fallback —
+    // perf optimisation deferred to the bench milestone).
     auto materialise = [](const Tensor& t) -> Tensor {
         if (t.is_contiguous() && t.offset() == 0) {
             return t;
@@ -94,8 +99,8 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
         if (t.device().is_cpu()) {
             return t.contiguous();
         }
-        throw DeviceError("ctorch::matmul: non-contiguous CUDA operands are not yet "
-                          "supported; call .contiguous() on the operand first");
+        const Device dev = t.device();
+        return t.to(Device::cpu()).contiguous().to(dev);
     };
     const Tensor a_c = materialise(a_p);
     const Tensor b_c = materialise(b_p);

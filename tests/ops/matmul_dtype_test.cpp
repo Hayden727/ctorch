@@ -22,8 +22,8 @@
 #include <gtest/gtest.h>
 
 using ctorch::Device;
-using ctorch::DTypeError;
 using ctorch::dtype;
+using ctorch::DTypeError;
 using ctorch::matmul;
 using ctorch::ShapeError;
 using ctorch::Tensor;

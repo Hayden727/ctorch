@@ -69,8 +69,8 @@ cublasOperation_t to_cublas(bool t) { return t ? CUBLAS_OP_T : CUBLAS_OP_N; }
 
 void check(cublasStatus_t s, const char* what) {
     if (s != CUBLAS_STATUS_SUCCESS) {
-        throw DeviceError(std::string("ctorch::matmul: ") + what +
-                          " failed with cuBLAS status " + std::to_string(static_cast<int>(s)));
+        throw DeviceError(std::string("ctorch::matmul: ") + what + " failed with cuBLAS status " +
+                          std::to_string(static_cast<int>(s)));
     }
 }
 

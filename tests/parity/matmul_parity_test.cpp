@@ -80,14 +80,10 @@ struct MatmulCase {
 };
 
 constexpr MatmulCase kCases[] = {
-    {"matmul_float32_3_x_3"},
-    {"matmul_float32_4_x_4x3"},
-    {"matmul_float32_3x4_x_4"},
-    {"matmul_float32_5x7_x_7x11"},
-    {"matmul_float64_3x4_x_4x5"},
-    {"matmul_float32_2x3x4_x_2x4x5"},
-    {"matmul_float32_2x3x4_x_4x5"},
-    {"matmul_float32_1x3x4_x_5x4x6"},
+    {"matmul_float32_3_x_3"},       {"matmul_float32_4_x_4x3"},
+    {"matmul_float32_3x4_x_4"},     {"matmul_float32_5x7_x_7x11"},
+    {"matmul_float64_3x4_x_4x5"},   {"matmul_float32_2x3x4_x_2x4x5"},
+    {"matmul_float32_2x3x4_x_4x5"}, {"matmul_float32_1x3x4_x_5x4x6"},
 };
 
 class MatmulParity : public ::testing::TestWithParam<MatmulCase> {};
