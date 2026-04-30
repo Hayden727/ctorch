@@ -431,11 +431,35 @@ Tensor Tensor::to(Device d) const {
     if (d == device()) {
         return *this;
     }
-    Tensor src = is_contiguous() && impl_->offset == 0 ? *this : contiguous();
-    Tensor out(src.impl_->shape, src.impl_->dt, d);
-    copy_bytes(out.impl_->storage.data(), d, src.impl_->storage.data(), src.device(),
-               src.impl_->storage.nbytes());
-    return out;
+    if (is_contiguous() && impl_->offset == 0) {
+        // Fast path: bulk-copy contiguous storage; metadata reused.
+        Tensor out(impl_->shape, impl_->dt, d);
+        copy_bytes(out.impl_->storage.data(), d, impl_->storage.data(), device(),
+                   impl_->storage.nbytes());
+        return out;
+    }
+    if (device().is_cpu()) {
+        // CPU source, non-contiguous: materialise on CPU first.
+        Tensor src = contiguous();
+        Tensor out(src.impl_->shape, src.impl_->dt, d);
+        copy_bytes(out.impl_->storage.data(), d, src.impl_->storage.data(), src.device(),
+                   src.impl_->storage.nbytes());
+        return out;
+    }
+    // Non-CPU source, non-contiguous (CUDA strided / offset). We can't
+    // run the strided-to-contiguous odometer on-device, so bulk-copy
+    // the entire underlying buffer over and preserve the original
+    // shape / stride / offset. The caller can then `.contiguous()` on
+    // the destination if a packed layout is required.
+    auto out_impl = std::make_shared<detail::TensorImpl>();
+    out_impl->dt = impl_->dt;
+    out_impl->shape = impl_->shape;
+    out_impl->stride = impl_->stride;
+    out_impl->offset = impl_->offset;
+    out_impl->storage = Storage(impl_->storage.nbytes(), d);
+    copy_bytes(out_impl->storage.data(), d, impl_->storage.data(), device(),
+               impl_->storage.nbytes());
+    return Tensor(std::move(out_impl));
 }
 
 } // namespace ctorch
