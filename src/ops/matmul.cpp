@@ -26,6 +26,10 @@
 #include "ops/cast_cpu.h"
 #include "ops/matmul_shape.h"
 
+#if defined(CTORCH_HAS_CUDA)
+#include "cuda/device_guard.h"
+#endif
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -44,10 +48,10 @@ struct MatmulRegistrar {
 };
 const MatmulRegistrar kMatmulRegistrar{};
 
-void reject_non_float(dtype dt) {
+void reject_non_float(dtype dt, const char* operand) {
     if (dt != dtype::float32 && dt != dtype::float64) {
-        throw DTypeError("ctorch::matmul: requires floating dtype inputs (got " +
-                         std::to_string(static_cast<int>(dt)) +
+        throw DTypeError(std::string("ctorch::matmul: requires floating dtype inputs (") + operand +
+                         " has dtype " + std::to_string(static_cast<int>(dt)) +
                          "); cast integer / bool inputs to float32 or float64 first");
     }
 }
@@ -65,8 +69,26 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
                           " — both inputs must live on the same device");
     }
 
+    // Reject integer / bool operands BEFORE promotion. Otherwise
+    // `int32 × float32` would silently widen to `float32` and pass.
+    // The documented contract is that any non-float operand throws.
+    reject_non_float(a.dtype(), "lhs");
+    reject_non_float(b.dtype(), "rhs");
     const dtype promoted = promote_types(a.dtype(), b.dtype());
-    reject_non_float(promoted);
+
+    // Helper: pin the calling thread to the operand's CUDA device for
+    // the duration of any sub-call (`Tensor::to`, `cast_cpu`, etc.) so
+    // multi-GPU callers don't accidentally allocate / launch on the
+    // wrong context. No-op on CPU operands.
+    auto with_device = [](const Tensor& t, auto&& body) -> Tensor {
+#if defined(CTORCH_HAS_CUDA)
+        if (t.device().is_cuda()) {
+            cuda::DeviceGuard guard(t.device().index);
+            return body();
+        }
+#endif
+        return body();
+    };
 
     // Promote operand dtypes if needed. CPU casts go through `cast_cpu`
     // directly; CUDA casts round-trip through CPU because we don't yet
@@ -81,7 +103,7 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
             return ops::cast_cpu(t, promoted);
         }
         const Device dev = t.device();
-        return ops::cast_cpu(t.to(Device::cpu()), promoted).to(dev);
+        return with_device(t, [&] { return ops::cast_cpu(t.to(Device::cpu()), promoted).to(dev); });
     };
     const Tensor a_p = cast_if_needed(a);
     const Tensor b_p = cast_if_needed(b);
@@ -92,7 +114,7 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
     // we round-trip through CPU since on-device strided materialisation
     // is not yet implemented (acceptable as a correctness fallback —
     // perf optimisation deferred to the bench milestone).
-    auto materialise = [](const Tensor& t) -> Tensor {
+    auto materialise = [&](const Tensor& t) -> Tensor {
         if (t.is_contiguous() && t.offset() == 0) {
             return t;
         }
@@ -100,7 +122,7 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
             return t.contiguous();
         }
         const Device dev = t.device();
-        return t.to(Device::cpu()).contiguous().to(dev);
+        return with_device(t, [&] { return t.to(Device::cpu()).contiguous().to(dev); });
     };
     const Tensor a_c = materialise(a_p);
     const Tensor b_c = materialise(b_p);

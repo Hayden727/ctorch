@@ -47,6 +47,19 @@ TEST(MatmulDType, RejectsBoolInputs) {
     EXPECT_THROW((void)matmul(a, b), DTypeError);
 }
 
+TEST(MatmulDType, MixedIntAndFloatRejectedBeforePromotion) {
+    // The dtype check must look at each operand individually — gating on
+    // the post-promotion dtype would let `int32 × float32` slip through.
+    Tensor a({2, 3}, dtype::int32, Device::cpu());
+    Tensor b({3, 2}, dtype::float32, Device::cpu());
+    EXPECT_THROW((void)matmul(a, b), DTypeError);
+    EXPECT_THROW((void)matmul(b.contiguous(), a), DTypeError);
+
+    Tensor c({2, 3}, dtype::bool_, Device::cpu());
+    Tensor d({3, 2}, dtype::float64, Device::cpu());
+    EXPECT_THROW((void)matmul(c, d), DTypeError);
+}
+
 TEST(MatmulDType, RejectsBFloat16) {
     Tensor a({2, 3}, dtype::bfloat16, Device::cpu());
     Tensor b({3, 2}, dtype::bfloat16, Device::cpu());
