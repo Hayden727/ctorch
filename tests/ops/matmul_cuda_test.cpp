@@ -133,6 +133,44 @@ TEST(MatmulCuda, MatmulOfTransposeUsesCpuRoundTripFallback) {
     expect_close_host<float>(c, ref);
 }
 
+TEST(MatmulCuda, NonContigCudaToCpuCopiesBoundedRangeNotFullStorage) {
+    // Codex P1 regression guard: `to(cpu)` on a strided CUDA view used
+    // to copy the full underlying allocation. A small slice of a large
+    // tensor should produce a CPU result whose backing storage is sized
+    // to the view's addressed range, not to the source's full nbytes.
+    if (!cuda_available()) {
+        GTEST_SKIP() << "no CUDA device";
+    }
+    constexpr std::int64_t kBig = 1024;
+    Tensor big(std::vector<std::int64_t>{kBig, kBig}, dtype::float32, Device::cpu());
+    auto* p = static_cast<float*>(big.storage().data());
+    for (std::int64_t i = 0; i < big.numel(); ++i) {
+        p[i] = static_cast<float>(i % 1000);
+    }
+    Tensor big_cuda = big.to(Device::cuda(0));
+
+    // Tiny logical view: shape (2, 2), starts at row 4 col 8, stride 1 row/col.
+    Tensor view = big_cuda.slice(0, 4, 6).slice(1, 8, 10);
+    Tensor view_cpu = view.to(Device::cpu());
+
+    EXPECT_EQ(view_cpu.shape(), std::vector<std::int64_t>({2, 2}));
+    // Bounded range: from offset 4*1024 + 8 = 4104 (after slicing dim 1) up
+    // through (4+1)*1024 + (8+1) = 5129. So storage holds <= ~1026 elements
+    // = 4104 bytes — orders of magnitude less than the source 4 MB.
+    const std::size_t source_nbytes = static_cast<std::size_t>(kBig) * kBig * sizeof(float);
+    EXPECT_LT(view_cpu.storage().nbytes(), source_nbytes / 100)
+        << "expected bounded-range copy, got " << view_cpu.storage().nbytes() << " of source "
+        << source_nbytes;
+
+    // Logical contents must still be correct after `.contiguous()`.
+    Tensor packed = view_cpu.contiguous();
+    const auto* pp = static_cast<const float*>(packed.storage().data());
+    EXPECT_FLOAT_EQ(pp[0], static_cast<float>((4 * 1024 + 8) % 1000));
+    EXPECT_FLOAT_EQ(pp[1], static_cast<float>((4 * 1024 + 9) % 1000));
+    EXPECT_FLOAT_EQ(pp[2], static_cast<float>((5 * 1024 + 8) % 1000));
+    EXPECT_FLOAT_EQ(pp[3], static_cast<float>((5 * 1024 + 9) % 1000));
+}
+
 TEST(MatmulCuda, MixedFloatPromotesToFloat64) {
     // Codex P2: CPU and CUDA must accept the same dtype combinations.
     // float32 × float64 should promote to float64 on both devices.

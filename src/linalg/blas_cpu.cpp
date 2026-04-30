@@ -21,7 +21,19 @@
 #include "linalg/blas.h"
 
 #if defined(CTORCH_HAS_BLAS)
+// OpenBLAS's `cblas.h` transitively includes `openblas_config.h`, which
+// declares `float _Complex` / `double _Complex` typedefs. clang under
+// `-Werror -Wpedantic -Wc99-extensions` rejects those as C99-only, even
+// though we never reference them. Suppress the warning around the
+// vendored header — it only affects this TU.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc99-extensions"
+#endif
 #include CTORCH_CBLAS_HEADER
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #endif
 
 namespace ctorch::linalg {

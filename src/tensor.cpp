@@ -447,18 +447,43 @@ Tensor Tensor::to(Device d) const {
         return out;
     }
     // Non-CPU source, non-contiguous (CUDA strided / offset). We can't
-    // run the strided-to-contiguous odometer on-device, so bulk-copy
-    // the entire underlying buffer over and preserve the original
-    // shape / stride / offset. The caller can then `.contiguous()` on
-    // the destination if a packed layout is required.
+    // run the strided-to-contiguous odometer on-device, so we bulk-copy
+    // **only the byte range actually addressed by the view** — copying
+    // the entire backing storage would scale with the source allocation
+    // (e.g. a small slice of a 1 GB tensor) instead of the view's
+    // bounding box.
+    //
+    // The destination preserves the source's shape / stride pattern
+    // but with `offset` rebased to zero, so the strided element layout
+    // matches the original; the caller can `.contiguous()` the
+    // destination on CPU to get a packed copy. Public ops only produce
+    // non-negative strides (slice rejects step <= 0), so the addressed
+    // range is `[offset, offset + Σ (shape[i]-1) * stride[i]]`.
+    const std::size_t elem = size_of(impl_->dt);
+    std::int64_t span_max_inclusive = impl_->offset;
+    bool view_is_empty = false;
+    for (std::size_t i = 0; i < impl_->shape.size(); ++i) {
+        const std::int64_t s = impl_->shape[i];
+        if (s == 0) {
+            view_is_empty = true;
+            break;
+        }
+        span_max_inclusive += (s - 1) * impl_->stride[i];
+    }
+    const std::int64_t span_elems = view_is_empty ? 0 : (span_max_inclusive - impl_->offset + 1);
+    const std::size_t span_bytes = static_cast<std::size_t>(span_elems) * elem;
+
     auto out_impl = std::make_shared<detail::TensorImpl>();
     out_impl->dt = impl_->dt;
     out_impl->shape = impl_->shape;
     out_impl->stride = impl_->stride;
-    out_impl->offset = impl_->offset;
-    out_impl->storage = Storage(impl_->storage.nbytes(), d);
-    copy_bytes(out_impl->storage.data(), d, impl_->storage.data(), device(),
-               impl_->storage.nbytes());
+    out_impl->offset = 0;
+    out_impl->storage = Storage(span_bytes, d);
+    if (span_bytes > 0) {
+        const auto* src_base = static_cast<const std::byte*>(impl_->storage.data()) +
+                               static_cast<std::size_t>(impl_->offset) * elem;
+        copy_bytes(out_impl->storage.data(), d, src_base, device(), span_bytes);
+    }
     return Tensor(std::move(out_impl));
 }
 
