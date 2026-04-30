@@ -30,7 +30,7 @@ jobs:
       - name: Install clang-tidy toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-16 clang-tidy-16 cmake ninja-build
+          sudo apt-get install -y clang-16 clang-tidy-16 cmake ninja-build libopenblas-dev
 
       - name: Configure for clang-tidy
         run: |
@@ -81,12 +81,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ${{ matrix.cc }} ninja-build cmake
+          sudo apt-get install -y ${{ matrix.cc }} ninja-build cmake libopenblas-dev
 
       - name: Install tools (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install ninja cmake
+          # macOS uses Apple's Accelerate framework as the BLAS provider
+          # by default — no extra install needed.
 
       - name: Configure
         run: |
@@ -119,7 +121,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-16 ninja-build cmake
+          sudo apt-get install -y clang-16 ninja-build cmake libopenblas-dev
 
       - name: Configure (Debug + ASan)
         run: |
@@ -155,7 +157,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12 ninja-build cmake valgrind
+          sudo apt-get install -y gcc-12 g++-12 ninja-build cmake valgrind libopenblas-dev
 
       - name: Configure (RelWithDebInfo)
         run: |
@@ -205,7 +207,7 @@ jobs:
           # standard Ubuntu repos (CUDA 12.0 on 24.04). That is sufficient
           # to compile the CTORCH_CUDA=ON code path; runtime exercise of
           # AC2 / AC5 still needs an NVIDIA driver.
-          sudo apt-get install -y nvidia-cuda-toolkit gcc-12 g++-12 ninja-build cmake
+          sudo apt-get install -y nvidia-cuda-toolkit gcc-12 g++-12 ninja-build cmake libopenblas-dev
 
       - name: Show toolchain
         run: |
