@@ -11,6 +11,7 @@
 #include "ctorch/errors.h"
 
 #include <algorithm>
+#include <climits>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -99,6 +100,21 @@ MatmulPlan plan_matmul(const Tensor& a, const Tensor& b) {
     plan.M = M;
     plan.K = Ka;
     plan.N = N;
+
+    // BLAS / cuBLAS take `int` dims, so the backends will narrow these
+    // before issuing the GEMM. Check the bound up front so a > INT_MAX
+    // dim raises a clean ShapeError instead of silently wrapping into
+    // a negative size at the call site.
+    auto check_int_range = [&](std::int64_t v, const char* name) {
+        if (v > static_cast<std::int64_t>(INT_MAX)) {
+            throw ShapeError(std::string("ctorch::matmul: ") + name + " dimension " +
+                             std::to_string(v) + " exceeds BLAS int range (max " +
+                             std::to_string(INT_MAX) + ")");
+        }
+    };
+    check_int_range(M, "M");
+    check_int_range(Ka, "K");
+    check_int_range(N, "N");
 
     // Per-batch element offsets, accounting for size-1 broadcasts (those
     // axes contribute stride 0). Strides walk the batch portion of the

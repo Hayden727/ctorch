@@ -22,6 +22,7 @@
 
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <cstdint>
 #include <initializer_list>
 #include <vector>
@@ -137,6 +138,19 @@ TEST(MatmulShape, ZeroDInputRejected) {
     Tensor b = make_f32({3}, {1, 2, 3});
     EXPECT_THROW((void)matmul(a, b), ShapeError);
     EXPECT_THROW((void)matmul(b, a), ShapeError);
+}
+
+TEST(MatmulShape, DimAboveIntMaxThrowsBeforeNarrowing) {
+    // Backends pass M / N / K as `int` to cblas / cuBLAS. A dim above
+    // INT_MAX would silently wrap on the cast; the planner has to
+    // surface this as ShapeError instead.
+    //
+    // Use a 0-sized companion dim so the Tensor ctor allocates zero
+    // bytes — we can construct the shape metadata without OOMing.
+    const std::int64_t big = static_cast<std::int64_t>(INT_MAX) + 1;
+    Tensor a(std::vector<std::int64_t>{big, 0}, dtype::float32, Device::cpu());
+    Tensor b(std::vector<std::int64_t>{0, 4}, dtype::float32, Device::cpu());
+    EXPECT_THROW((void)matmul(a, b), ShapeError);
 }
 
 TEST(MatmulShape, ZeroSizedBatchBroadcastIsPreserved) {
