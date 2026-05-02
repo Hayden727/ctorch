@@ -40,3 +40,15 @@ ctorch_add_test(indexing_parity_test
 target_compile_definitions(indexing_parity_test
   PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
 )
+
+# matmul parity exercises the CPU backend; skip when there's no BLAS
+# linked in (matmul_cpu becomes a stub).
+if(CTORCH_BLAS)
+  ctorch_add_test(matmul_parity_test
+    SOURCES matmul_parity_test.cpp
+    LIBS    ctorch_parity_support
+  )
+  target_compile_definitions(matmul_parity_test
+    PRIVATE CTORCH_PARITY_FIXTURES_DIR="${CTORCH_PARITY_FIXTURES_DIR}"
+  )
+endif()

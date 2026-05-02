@@ -7,3 +7,8 @@ build_*/
 *.user
 cmake-build-*/
 compile_commands.json
+# Per-developer agent state — Claude Code session lockfile and the local
+# tool-permission allowlist. Never commit; both are machine-specific and
+# would create spurious churn / inherit local policy onto other clones.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

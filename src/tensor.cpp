@@ -17,6 +17,7 @@
 #include "ctorch/tensor.h"
 
 #include "ctorch/errors.h"
+#include "ctorch/ops/linalg.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -236,6 +237,44 @@ Tensor Tensor::permute(std::vector<std::int64_t> dims) const {
     return Tensor(std::move(out));
 }
 
+Tensor transpose(const Tensor& x, int dim0, int dim1) {
+    const int rank = static_cast<int>(x.shape().size());
+    if (rank == 0) {
+        throw ShapeError("ctorch::transpose: cannot transpose a 0-d tensor");
+    }
+    auto normalise = [rank](int d, const char* tag) {
+        const int adj = d < 0 ? d + rank : d;
+        if (adj < 0 || adj >= rank) {
+            throw ShapeError(std::string("ctorch::transpose: ") + tag + " " + std::to_string(d) +
+                             " out of range for tensor of rank " + std::to_string(rank));
+        }
+        return adj;
+    };
+    const int a = normalise(dim0, "dim0");
+    const int b = normalise(dim1, "dim1");
+    if (a == b) {
+        return x;
+    }
+    std::vector<std::int64_t> perm(static_cast<std::size_t>(rank));
+    for (int i = 0; i < rank; ++i) {
+        perm[static_cast<std::size_t>(i)] = i;
+    }
+    std::swap(perm[static_cast<std::size_t>(a)], perm[static_cast<std::size_t>(b)]);
+    return x.permute(std::move(perm));
+}
+
+Tensor Tensor::T() const {
+    if (!impl_) {
+        throw_undefined("T");
+    }
+    if (impl_->shape.size() != 2) {
+        throw ShapeError("ctorch::Tensor::T: requires a 2-D tensor (got rank " +
+                         std::to_string(impl_->shape.size()) +
+                         "); use ctorch::transpose(x, i, j) for arbitrary rank");
+    }
+    return permute({1, 0});
+}
+
 Tensor Tensor::contiguous() const {
     if (is_contiguous() && impl_->offset == 0) {
         return *this;
@@ -392,11 +431,60 @@ Tensor Tensor::to(Device d) const {
     if (d == device()) {
         return *this;
     }
-    Tensor src = is_contiguous() && impl_->offset == 0 ? *this : contiguous();
-    Tensor out(src.impl_->shape, src.impl_->dt, d);
-    copy_bytes(out.impl_->storage.data(), d, src.impl_->storage.data(), src.device(),
-               src.impl_->storage.nbytes());
-    return out;
+    if (is_contiguous() && impl_->offset == 0) {
+        // Fast path: bulk-copy contiguous storage; metadata reused.
+        Tensor out(impl_->shape, impl_->dt, d);
+        copy_bytes(out.impl_->storage.data(), d, impl_->storage.data(), device(),
+                   impl_->storage.nbytes());
+        return out;
+    }
+    if (device().is_cpu()) {
+        // CPU source, non-contiguous: materialise on CPU first.
+        Tensor src = contiguous();
+        Tensor out(src.impl_->shape, src.impl_->dt, d);
+        copy_bytes(out.impl_->storage.data(), d, src.impl_->storage.data(), src.device(),
+                   src.impl_->storage.nbytes());
+        return out;
+    }
+    // Non-CPU source, non-contiguous (CUDA strided / offset). We can't
+    // run the strided-to-contiguous odometer on-device, so we bulk-copy
+    // **only the byte range actually addressed by the view** — copying
+    // the entire backing storage would scale with the source allocation
+    // (e.g. a small slice of a 1 GB tensor) instead of the view's
+    // bounding box.
+    //
+    // The destination preserves the source's shape / stride pattern
+    // but with `offset` rebased to zero, so the strided element layout
+    // matches the original; the caller can `.contiguous()` the
+    // destination on CPU to get a packed copy. Public ops only produce
+    // non-negative strides (slice rejects step <= 0), so the addressed
+    // range is `[offset, offset + Σ (shape[i]-1) * stride[i]]`.
+    const std::size_t elem = size_of(impl_->dt);
+    std::int64_t span_max_inclusive = impl_->offset;
+    bool view_is_empty = false;
+    for (std::size_t i = 0; i < impl_->shape.size(); ++i) {
+        const std::int64_t s = impl_->shape[i];
+        if (s == 0) {
+            view_is_empty = true;
+            break;
+        }
+        span_max_inclusive += (s - 1) * impl_->stride[i];
+    }
+    const std::int64_t span_elems = view_is_empty ? 0 : (span_max_inclusive - impl_->offset + 1);
+    const std::size_t span_bytes = static_cast<std::size_t>(span_elems) * elem;
+
+    auto out_impl = std::make_shared<detail::TensorImpl>();
+    out_impl->dt = impl_->dt;
+    out_impl->shape = impl_->shape;
+    out_impl->stride = impl_->stride;
+    out_impl->offset = 0;
+    out_impl->storage = Storage(span_bytes, d);
+    if (span_bytes > 0) {
+        const auto* src_base = static_cast<const std::byte*>(impl_->storage.data()) +
+                               static_cast<std::size_t>(impl_->offset) * elem;
+        copy_bytes(out_impl->storage.data(), d, src_base, device(), span_bytes);
+    }
+    return Tensor(std::move(out_impl));
 }
 
 } // namespace ctorch

@@ -109,6 +109,11 @@ class Tensor {
     /// are rearranged.
     Tensor permute(std::vector<std::int64_t> dims) const;
 
+    /// 2-D shorthand for `transpose(*this, 0, 1)`. Throws `ShapeError` when
+    /// the tensor is not exactly 2-D — use the free `transpose(x, i, j)`
+    /// for arbitrary rank.
+    Tensor T() const;
+
     /// Returns `*this` if already contiguous; otherwise materializes a fresh
     /// row-major copy with its own Storage.
     Tensor contiguous() const;
