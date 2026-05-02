@@ -32,6 +32,10 @@ std::string shape_to_string(const std::vector<std::int64_t>& s) {
 }
 
 // Right-aligned broadcast of two batch shapes. Throws on mismatch.
+// Picking the non-1 operand (rather than `max(da, db)`) keeps zero-sized
+// axes intact: `broadcast(0, 1)` must be 0, not 1, otherwise the planner
+// schedules GEMMs against empty storage and produces a non-empty output
+// shape for inputs that broadcast to zero rows.
 std::vector<std::int64_t> broadcast_batch(const std::vector<std::int64_t>& a,
                                           const std::vector<std::int64_t>& b) {
     const std::size_t out_rank = std::max(a.size(), b.size());
@@ -39,8 +43,12 @@ std::vector<std::int64_t> broadcast_batch(const std::vector<std::int64_t>& a,
     for (std::size_t i = 0; i < out_rank; ++i) {
         const std::int64_t da = i < a.size() ? a[a.size() - 1 - i] : 1;
         const std::int64_t db = i < b.size() ? b[b.size() - 1 - i] : 1;
-        if (da == db || da == 1 || db == 1) {
-            out[out_rank - 1 - i] = std::max(da, db);
+        if (da == db) {
+            out[out_rank - 1 - i] = da;
+        } else if (da == 1) {
+            out[out_rank - 1 - i] = db;
+        } else if (db == 1) {
+            out[out_rank - 1 - i] = da;
         } else {
             throw ShapeError("ctorch::matmul: incompatible batch dims " + std::to_string(da) +
                              " vs " + std::to_string(db));

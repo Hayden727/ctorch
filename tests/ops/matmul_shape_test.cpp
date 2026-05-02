@@ -139,6 +139,17 @@ TEST(MatmulShape, ZeroDInputRejected) {
     EXPECT_THROW((void)matmul(b, a), ShapeError);
 }
 
+TEST(MatmulShape, ZeroSizedBatchBroadcastIsPreserved) {
+    // Broadcasting a 0-sized batch dim against a 1-sized one must
+    // collapse to 0, not 1 — otherwise the planner would schedule
+    // GEMMs against empty storage. Result is a valid empty tensor.
+    Tensor a({0, 2, 3}, dtype::float32, Device::cpu());
+    Tensor b({1, 3, 4}, dtype::float32, Device::cpu());
+    Tensor c = matmul(a, b);
+    EXPECT_EQ(c.shape(), std::vector<std::int64_t>({0, 2, 4}));
+    EXPECT_EQ(c.numel(), 0);
+}
+
 TEST(MatmulShape, MatmulOfTransposeProducesGramMatrix) {
     // c = a · a^T must be symmetric and equal a a^T element-wise.
     Tensor a = make_f32({2, 3}, {1, 2, 3, 4, 5, 6});
