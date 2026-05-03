@@ -133,9 +133,14 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
 
     Tensor out(plan.out_shape, promoted, a.device());
 
-    if (plan.M == 0 || plan.N == 0 || plan.a_offsets.empty()) {
-        // Empty result — no GEMM calls needed; output is already
-        // zero-initialised by Tensor's ctor.
+    if (plan.M == 0 || plan.N == 0 || plan.K == 0 || plan.a_offsets.empty()) {
+        // Empty result OR empty contraction: skip the GEMM call.
+        //  - M==0 / N==0 / batch==0: the output tensor is empty, so
+        //    nothing to write.
+        //  - K==0: the contraction sum is empty so C must be 0;
+        //    Tensor's zero-init already gives that. Dispatching anyway
+        //    would feed BLAS `K=0` plus `lda=K=0` (an illegal-parameter
+        //    error in cblas / cuBLAS).
         return out;
     }
 

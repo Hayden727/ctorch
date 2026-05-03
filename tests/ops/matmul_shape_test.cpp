@@ -153,6 +153,21 @@ TEST(MatmulShape, DimAboveIntMaxThrowsBeforeNarrowing) {
     EXPECT_THROW((void)matmul(a, b), ShapeError);
 }
 
+TEST(MatmulShape, EmptyContractionAxisProducesZeros) {
+    // (M, 0) @ (0, N) → (M, N) of zeros. The contraction sum over an
+    // empty K dimension is 0 by convention. The matmul must not
+    // dispatch GEMM with K=0 / lda=0 (illegal-parameter in BLAS).
+    Tensor a({2, 0}, dtype::float32, Device::cpu());
+    Tensor b({0, 3}, dtype::float32, Device::cpu());
+    Tensor c = matmul(a, b);
+    EXPECT_EQ(c.shape(), std::vector<std::int64_t>({2, 3}));
+    EXPECT_EQ(c.numel(), 6);
+    const auto* p = fdata(c);
+    for (std::int64_t i = 0; i < c.numel(); ++i) {
+        EXPECT_EQ(p[i], 0.0f) << "i=" << i;
+    }
+}
+
 TEST(MatmulShape, ZeroSizedBatchBroadcastIsPreserved) {
     // Broadcasting a 0-sized batch dim against a 1-sized one must
     // collapse to 0, not 1 — otherwise the planner would schedule
