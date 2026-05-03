@@ -201,6 +201,66 @@ out-of-range, rank-0 source, or non-1-D indices raise `ShapeError`.
 Cross-device pairs (`src.device() != indices.device()`) raise
 `DeviceError`.
 
+# Linear algebra
+
+Operators delivered by [Issue #11](https://github.com/Hayden727/ctorch/issues/11).
+Include `<ctorch/ops/linalg.h>`.
+
+## transpose / Tensor::T()
+
+Both are pure metadata views (zero-copy). `transpose(x, i, j)` swaps
+the two axes, applying negative-index normalisation against
+`x.shape().size()`; `dim0 == dim1` returns the input unchanged.
+`Tensor::T()` is the 2-D shorthand and rejects non-2-D inputs with
+`ShapeError`. The result aliases the source — modifying one is
+visible through the other.
+
+## matmul
+
+```cpp
+Tensor matmul(const Tensor& a, const Tensor& b);
+```
+
+Dispatches per device. CPU goes through `cblas_sgemm` / `cblas_dgemm`
+via the BLAS resolved at configure time (Apple Accelerate, OpenBLAS,
+Intel MKL — anything `find_package(BLAS)` finds). CUDA uses
+`cublasSgemm` / `cublasDgemm` with the standard `C^T = B^T A^T` trick
+to reconcile cuBLAS's column-major convention against ctorch's
+row-major buffers.
+
+Shape rules mirror PyTorch's `torch.matmul`:
+
+| `a.ndim()` | `b.ndim()` | Result                                                          |
+| ---------- | ---------- | --------------------------------------------------------------- |
+| 1          | 1          | 0-D scalar — dot product                                        |
+| 1          | 2          | 1-D row × matrix → 1-D                                          |
+| 2          | 1          | matrix × column → 1-D                                           |
+| 2          | 2          | standard GEMM `(M, K) × (K, N) → (M, N)`                        |
+| ≥ 2        | ≥ 2        | batched: leading dims broadcast right-aligned, GEMM on last two |
+
+Mixed `float32 × float64` promotes to `float64`. Integer / bool
+operands raise `DTypeError` (cast to a float dtype first). `bfloat16`
+remains out of scope. Cross-device pairs raise `DeviceError`;
+inner-dim mismatch raises `ShapeError` with both shapes printed.
+
+### Numerical tolerance
+
+| dtype   | tolerance     |
+| ------- | ------------- |
+| float32 | `1e-4` rel    |
+| float64 | `1e-12` rel   |
+
+The wider fp32 tolerance reflects BLAS's fused multiply-add: results
+differ from a naïve triple-loop reference by a few ULPs but are
+self-consistent.
+
+### Build dependency
+
+`-DCTORCH_BLAS=OFF` disables the CPU matmul (the build still succeeds
+with no BLAS dependency, but invoking `matmul` raises a runtime
+error). The CUDA backend always pulls in cuBLAS via `CUDA::cublas`
+when `CTORCH_CUDA=ON`.
+
 ## Regenerating parity fixtures
 
 The `.npy` fixtures under `tests/parity/fixtures/` are committed binaries.

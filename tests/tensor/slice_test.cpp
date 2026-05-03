@@ -20,6 +20,7 @@
 
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -129,6 +130,15 @@ TEST(TensorSlice, NonPositiveStepThrows) {
 TEST(TensorSlice, RankZeroRejected) {
     Tensor t({}, dtype::int32, Device::cpu());
     EXPECT_THROW((void)t.slice(0, 0, 0), ShapeError);
+}
+
+TEST(TensorSlice, IntMinDimThrowsWithoutOverflow) {
+    // `dim + rank` would overflow signed int for INT_MIN. Bounds
+    // check must fire before normalisation. Same for select / narrow.
+    Tensor t({2, 3}, dtype::int32, Device::cpu());
+    EXPECT_THROW((void)t.slice(INT_MIN, 0, 1), ShapeError);
+    EXPECT_THROW((void)t.select(INT_MIN, 0), ShapeError);
+    EXPECT_THROW((void)t.narrow(INT_MIN, 0, 1), ShapeError);
 }
 
 TEST(TensorSelect, DropsDimAndSharesStorage) {
