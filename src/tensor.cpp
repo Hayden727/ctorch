@@ -243,12 +243,14 @@ Tensor transpose(const Tensor& x, int dim0, int dim1) {
         throw ShapeError("ctorch::transpose: cannot transpose a 0-d tensor");
     }
     auto normalise = [rank](int d, const char* tag) {
-        const int adj = d < 0 ? d + rank : d;
-        if (adj < 0 || adj >= rank) {
+        // Range-check before normalising: `d + rank` overflows signed
+        // int when `d == INT_MIN` (UB). Valid window after normalisation
+        // is `[-rank, rank)`.
+        if (d < -rank || d >= rank) {
             throw ShapeError(std::string("ctorch::transpose: ") + tag + " " + std::to_string(d) +
                              " out of range for tensor of rank " + std::to_string(rank));
         }
-        return adj;
+        return d < 0 ? d + rank : d;
     };
     const int a = normalise(dim0, "dim0");
     const int b = normalise(dim1, "dim1");
@@ -295,12 +297,14 @@ Tensor Tensor::contiguous() const {
 namespace {
 
 int normalise_dim(int dim, int rank, const char* op) {
-    const int adj = dim < 0 ? dim + rank : dim;
-    if (rank == 0 || adj < 0 || adj >= rank) {
+    // Range-check before normalising: `dim + rank` overflows signed
+    // int when `dim == INT_MIN` (UB). Valid window after normalisation
+    // is `[-rank, rank)`; rank==0 has no valid dim.
+    if (rank == 0 || dim < -rank || dim >= rank) {
         throw ShapeError(std::string("ctorch::Tensor::") + op + ": dim " + std::to_string(dim) +
                          " out of range for tensor of rank " + std::to_string(rank));
     }
-    return adj;
+    return dim < 0 ? dim + rank : dim;
 }
 
 } // namespace

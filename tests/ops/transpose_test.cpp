@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <cstdint>
 #include <vector>
 
@@ -77,6 +78,14 @@ TEST(Transpose, OutOfRangeDimThrows) {
 TEST(Transpose, RankZeroRejected) {
     Tensor t({}, dtype::float32, Device::cpu());
     EXPECT_THROW((void)transpose(t, 0, 0), ShapeError);
+}
+
+TEST(Transpose, IntMinDimThrowsWithoutOverflow) {
+    // `dim + rank` would overflow signed int when dim == INT_MIN.
+    // The bounds check has to fire before normalisation.
+    Tensor t({2, 3}, dtype::float32, Device::cpu());
+    EXPECT_THROW((void)transpose(t, INT_MIN, 0), ShapeError);
+    EXPECT_THROW((void)transpose(t, 0, INT_MIN), ShapeError);
 }
 
 TEST(TensorT, ShorthandFor2DTranspose) {
